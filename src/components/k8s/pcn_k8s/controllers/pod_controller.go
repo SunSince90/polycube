@@ -440,6 +440,13 @@ func (p *PcnPodController) podMeetsCriteria(pod *core_v1.Pod, podSpec pcn_types.
 	}
 
 	//-------------------------------------
+	//	The node
+	//-------------------------------------
+	if len(podSpec.Node) > 0 && pod.Spec.NodeName != pod.Spec.NodeName {
+		return false
+	}
+
+	//-------------------------------------
 	//	The phase
 	//-------------------------------------
 	if phase != pcn_types.PodAnyPhase {
@@ -466,7 +473,9 @@ func (p *PcnPodController) podMeetsCriteria(pod *core_v1.Pod, podSpec pcn_types.
 		}
 	}
 
-	//	Check the namespace: if this pod belongs to a namespace I am not interested in, then stop right here.
+	//-------------------------------------
+	//	The namespace
+	//-------------------------------------
 	if len(nsSpec.Name) > 0 {
 		if pod.Namespace != nsSpec.Name {
 			return false
@@ -495,6 +504,9 @@ func (p *PcnPodController) podMeetsCriteria(pod *core_v1.Pod, podSpec pcn_types.
 		}
 	}
 
+	//-------------------------------------
+	//	The Pod Labels
+	//-------------------------------------
 	//	Check the labels: if this pod does not contain all the labels I am interested in, then stop right here.
 	//	It should be very rare to see pods with more than 5 labels...
 	if len(podSpec.Labels) > 0 {

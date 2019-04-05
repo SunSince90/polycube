@@ -15,8 +15,13 @@ import (
 )
 
 type PcnFirewall interface {
+	Link(k8s_types.UID, string) bool
+	Unlink(k8s_types.UID, bool) (bool, int)
+	LinkedPods() map[k8s_types.UID]string
+
 	EnforcePolicy(string, string, []k8sfirewall.ChainRule, []k8sfirewall.ChainRule, pcn_types.FirewallActions) (error, error)
 	CeasePolicy(string)
+
 	ForPod() k8s_types.UID
 	RemoveRules(string, []k8sfirewall.ChainRule) []k8sfirewall.ChainRule
 	RemoveIPReferences(string, string)
@@ -35,9 +40,19 @@ type DeployedFirewall struct {
 
 	/*ingressChain *k8sfirewall.Chain
 	egressChain  *k8sfirewall.Chain*/
-	fwAPI  k8sfirewall.FirewallAPI
+	fwAPI k8sfirewall.FirewallAPI
+
+	//	TODO: remove the following two
 	podUID k8s_types.UID
 	podIP  string
+
+	//	TODO: check if this link lock is useful
+	//linkLock sync.Mutex
+
+	// linkedPods is a map of pods monitored by this firewall manager
+	linkedPods map[k8s_types.UID]linkedPod
+	// name is the name of this firewall manager
+	name string
 
 	policyTypes          map[string]string
 	policyActions        map[string]*policyActions
@@ -52,6 +67,11 @@ type DeployedFirewall struct {
 	lock sync.Mutex
 }
 
+type linkedPod struct {
+	ip string
+	sync.Mutex
+}
+
 type rulesContainer struct {
 	ingress []k8sfirewall.ChainRule
 	egress  []k8sfirewall.ChainRule
@@ -62,34 +82,25 @@ type policyActions struct {
 	egress  []func()
 }
 
-func StartFirewall(pod core_v1.Pod, API k8sfirewall.FirewallAPI, podController pcn_controllers.PodController) *DeployedFirewall {
-	//	This method is unexported by design: *only* the firewall manager is supposed to get new firewalls.
-
-	var l = log.WithFields(log.Fields{
-		"by":     "PcnFirewall",
-		"method": "New()",
-	})
+// StartFirewall will start a new firewall manager
+func StartFirewall(API k8sfirewall.FirewallAPI, podController pcn_controllers.PodController, name string) *DeployedFirewall {
+	//	This method is unexported by design: *only* the network policy manager is supposed to create firewall managers.
 
 	//-------------------------------------
 	//	Init
 	//-------------------------------------
+	l := log.NewEntry(log.New())
+	l.WithFields(log.Fields{"by": FWM, "method": "StartFirewall()"})
+	l.Infoln("Starting Firewall Manager, with name", name)
 
 	//	The name of the firewall
-	name := "fw-" + pod.Status.PodIP
+	//name := "fw-" + pod.Status.PodIP
 
+	//	Main structure
 	deployedFw := DeployedFirewall{}
 
-	//	The chains are here just for storing a default action (and maybe contain stats in future)
-	/*deployedFw.ingressChain = &k8sfirewall.Chain{
-		Name:     "ingress",
-		Default_: "drop",
-	}
-	deployedFw.egressChain = &k8sfirewall.Chain{
-		Name:     "egress",
-		Default_: "drop",
-	}*/
-
 	//	Rules
+	// TODO: change this?
 	deployedFw.rules = map[string]*rulesContainer{}
 	deployedFw.ingressRules = map[string][]k8sfirewall.ChainRule{}
 	deployedFw.egressRules = map[string][]k8sfirewall.ChainRule{}
@@ -97,25 +108,23 @@ func StartFirewall(pod core_v1.Pod, API k8sfirewall.FirewallAPI, podController p
 	//	The firewall API
 	deployedFw.fwAPI = API
 
-	//	The pod this firewall is intended for
-	deployedFw.podUID = pod.UID
-
-	//	The pod's ip
-	deployedFw.podIP = pod.Status.PodIP
+	// TODO: remove the following
+	/*deployedFw.podUID = pod.UID
+	deployedFw.podIP = pod.Status.PodIP*/
 
 	deployedFw.ingressPoliciesCount = 0
 	deployedFw.egressPoliciesCount = 0
 	deployedFw.policyTypes = map[string]string{}
 	deployedFw.policyActions = map[string]*policyActions{}
 	deployedFw.checkedPods = map[string]bool{}
-
+	deployedFw.linkedPods = map[k8s_types.UID]linkedPod{}
 	deployedFw.podController = podController
 
 	//-------------------------------------
 	//	Get the firewall
 	//-------------------------------------
 
-	fw, response, err := deployedFw.fwAPI.ReadFirewallByID(nil, name)
+	/*fw, response, err := deployedFw.fwAPI.ReadFirewallByID(nil, name)
 
 	if err != nil {
 		l.Errorln("Could not get firewall with name", name, ":", err, response)
@@ -133,13 +142,69 @@ func StartFirewall(pod core_v1.Pod, API k8sfirewall.FirewallAPI, podController p
 
 	if err != nil {
 		l.Warningln("Could not set interactive to false for firewall", name, ":", err, response, ". Applying rules may take some time!")
-	}
-
-	//	TODO: read the firewall by ID in order to get the other components?
+	}*/
 
 	return &deployedFw
 }
 
+// Link adds a new pod to the list of pods that must be handled by this firewall manager.
+// Best practice is to only link pods with the same labels on the same namespace and node to a firewall manager.
+// It returns TRUE if the pod was inserted or FALSE if the pod was already linked
+func (d *DeployedFirewall) Link(podUID k8s_types.UID, podIP string) bool {
+	d.lock.Lock()
+	defer d.lock.Unlock()
+
+	//	TODO: remove this
+	log.Println("Pod with IP", podIP, "has been linked")
+
+	_, existed := d.linkedPods[podUID]
+
+	if !existed {
+		d.linkedPods[podUID] = linkedPod{
+			ip: podIP,
+		}
+	}
+
+	return existed
+}
+
+// Unlink removes the provided pod from the list of monitored ones by this firewall manager.
+// If the second argument is TRUE, then the provided pod's firewall will be destroyed as well.
+// It returns FALSE if the pod was not among the monitored ones and the number of remaining pods linked.
+func (d *DeployedFirewall) Unlink(podUID k8s_types.UID, destroy bool) (bool, int) {
+	d.lock.Lock()
+	defer d.lock.Unlock()
+
+	//	TODO: remove this
+	log.Println("Pod with IP", d.linkedPods[podUID], "has been unlinked")
+	_, ok := d.linkedPods[podUID]
+	if !ok {
+		//	This pod was not even linked
+		return false, len(d.linkedPods)
+	}
+
+	if destroy {
+		//	TODO: d.destroy(podUID)
+	}
+	delete(d.linkedPods, podUID)
+
+	return true, len(d.linkedPods)
+}
+
+// LinkedPods returns a map of pods monitored by this firewall manager.
+func (d *DeployedFirewall) LinkedPods() map[k8s_types.UID]string {
+	d.lock.Lock()
+	defer d.lock.Unlock()
+
+	podsInside := make(map[k8s_types.UID]string, len(d.linkedPods))
+	for k, v := range d.linkedPods {
+		podsInside[k] = v.ip
+	}
+
+	return podsInside
+}
+
+//	TODO: remove this
 func (d *DeployedFirewall) ForPod() k8s_types.UID {
 	return d.podUID
 }
