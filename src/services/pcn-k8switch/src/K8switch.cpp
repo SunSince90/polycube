@@ -170,7 +170,7 @@ void K8switch::doSetVirtualClientSubnet(const std::string &value) {
   virtual_client_cidr_ = value;
 }
 
-	std::string K8switch::getFlags() {
+std::string K8switch::getFlags() {
   std::string flags;
 
   // ports
@@ -199,11 +199,12 @@ void K8switch::doSetVirtualClientSubnet(const std::string &value) {
            std::to_string(htonl(virtual_client_subnet_)) + "\n";
   logger()->debug("flags is {}", flags);
 
-   return flags;
+  return flags;
 }
 
- void K8switch::reloadConfig() {
+void K8switch::reloadConfig() {
   std::string flags(getFlags());
+  
   logger()->debug("Reloading code with flags port: {}", flags);
 
   reload(flags + k8switch_code);
