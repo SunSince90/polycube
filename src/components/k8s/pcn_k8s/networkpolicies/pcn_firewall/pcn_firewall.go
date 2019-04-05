@@ -52,6 +52,8 @@ type DeployedFirewall struct {
 	linkedPods map[k8s_types.UID]linkedPod
 	// name is the name of this firewall manager
 	name string
+	// log is a new entry in logger
+	log *log.Logger
 
 	policyTypes          map[string]string
 	policyActions        map[string]*policyActions
@@ -119,6 +121,7 @@ func StartFirewall(API k8sfirewall.FirewallAPI, podController pcn_controllers.Po
 	deployedFw.linkedPods = map[k8s_types.UID]linkedPod{}
 	deployedFw.podController = podController
 	deployedFw.name = name
+	deployedFw.log = log.New()
 
 	//-------------------------------------
 	//	Get the firewall
@@ -155,7 +158,7 @@ func (d *DeployedFirewall) Link(podUID k8s_types.UID, podIP string) bool {
 	defer d.lock.Unlock()
 
 	//	TODO: remove this
-	log.Println("Pod with IP", podIP, "has been linked")
+	d.log.Infoln("Pod with IP", podIP, "has been linked")
 
 	_, existed := d.linkedPods[podUID]
 
@@ -176,7 +179,7 @@ func (d *DeployedFirewall) Unlink(podUID k8s_types.UID, destroy bool) (bool, int
 	defer d.lock.Unlock()
 
 	//	TODO: remove this
-	log.Println("Pod with IP", d.linkedPods[podUID], "has been unlinked")
+	log.Infoln("Pod with IP", d.linkedPods[podUID], "has been unlinked")
 	_, ok := d.linkedPods[podUID]
 	if !ok {
 		//	This pod was not even linked

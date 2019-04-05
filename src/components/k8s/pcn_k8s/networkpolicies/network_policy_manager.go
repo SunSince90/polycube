@@ -392,6 +392,9 @@ func (manager *NetworkPolicyManager) getOrCreateFirewallManager(pod *core_v1.Pod
 		manager.localFirewalls[fwKey] = pcn_firewall.StartFirewall(manager.fwAPI, manager.podController, fwKey)
 	}
 
+	if _fw == nil {
+		log.Infoln("fw is nil")
+	}
 	//	If Link returns false it means that the pod was not linked because it was already linked.
 	inserted := _fw.Link(pod.UID, pod.Status.PodIP)
 

@@ -442,7 +442,7 @@ func (p *PcnPodController) podMeetsCriteria(pod *core_v1.Pod, podSpec pcn_types.
 	//-------------------------------------
 	//	The node
 	//-------------------------------------
-	if len(podSpec.Node) > 0 && pod.Spec.NodeName != pod.Spec.NodeName {
+	if len(podSpec.Node) > 0 && pod.Spec.NodeName != podSpec.Node {
 		return false
 	}
 
