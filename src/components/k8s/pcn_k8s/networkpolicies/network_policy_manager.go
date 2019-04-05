@@ -1,6 +1,8 @@
 package networkpolicies
 
 import (
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -209,13 +211,22 @@ func (manager *NetworkPolicyManager) UpdateDefaultPolicy(policy *networking_v1.N
 // implode creates a key in the format of namespace_name|key1=value1;key2=value2;.
 // This is used to recognize if two pods must share the same rules or must be considered separately.
 func (manager *NetworkPolicyManager) implode(labels map[string]string, ns string) string {
+	//	The first part of the key is the namespace name and the | separator
 	key := ns + "|"
 
+	//	Now we create an array of imploded labels (e.g.: [app=mysql version=2.5 beta=no])
+	implodedLabels := []string{}
 	for k, v := range labels {
-		key += k + "=" + v + ";"
+		implodedLabels = append(implodedLabels, k+"="+v)
 	}
 
-	return key
+	//	Now we sort the labels. Why do we sort them? Because maps in go do not preserve an alphabetical order.
+	//	As per documentation, order is not fixed. Two pods may have the exact same labels, but the iteration order in them may differ.
+	//	So, by sorting them alphabetically we're making them equal.
+	sort.Strings(implodedLabels)
+
+	//	Join the key and the labels
+	return key + strings.Join(implodedLabels, ";")
 }
 
 // checkNewPod will perform some checks on the new pod just updated.
@@ -235,33 +246,7 @@ func (manager *NetworkPolicyManager) checkNewPod(pod *core_v1.Pod) {
 	}
 
 	//	Did I already create a firewall for this?
-	//	Let's do it in a lambda, so we can use defer
-	fw, existed := func() (pcn_firewall.PcnFirewall, bool) {
-		fwKey := manager.implode(pod.Labels, pod.Namespace)
-		manager.lock.Lock()
-		defer manager.lock.Unlock()
-
-		//	First get the firewall
-		fw, exists := manager.localFirewalls[fwKey]
-		if !exists {
-			manager.localFirewalls[fwKey] = pcn_firewall.StartFirewall(manager.fwAPI, manager.podController, fwKey)
-			//	TODO: remove
-			l.Infoln("created firewall manager with name", fwKey)
-		}
-
-		//	If Link returns false it means that the pod was not linked because it was already linked.
-		inserted := fw.Link(pod.UID, pod.Status.PodIP)
-
-		//	So, if it was actually inserted, than we can unflag this firewall for deletion (if it ever was)
-		if inserted {
-			if timer, wasFlagged := manager.flaggedForDeletion[fwKey]; wasFlagged {
-				timer.Stop() // you're going to survive! Be happy!
-				delete(manager.flaggedForDeletion, fwKey)
-			}
-		}
-
-		return fw, !inserted
-	}()
+	fw, existed := manager.getOrCreateFirewallManager(pod)
 
 	if existed {
 		//	The pod is already linked to the firewall: no point to go on.
@@ -392,6 +377,33 @@ func (manager *NetworkPolicyManager) checkNewPod(pod *core_v1.Pod) {
 
 	//checked.lastKnownIP = pod.Status.PodIP
 	return
+}
+
+// getOrCreateFirewallManager gets a local firewall manager for this pod or creates one if not there.
+// Returns the newly created/already existing firewall manager and TRUE if this pod was already linked.
+func (manager *NetworkPolicyManager) getOrCreateFirewallManager(pod *core_v1.Pod) (pcn_firewall.PcnFirewall, bool) {
+	fwKey := manager.implode(pod.Labels, pod.Namespace)
+	manager.lock.Lock()
+	defer manager.lock.Unlock()
+
+	//	First get the firewall
+	_fw, exists := manager.localFirewalls[fwKey]
+	if !exists {
+		manager.localFirewalls[fwKey] = pcn_firewall.StartFirewall(manager.fwAPI, manager.podController, fwKey)
+	}
+
+	//	If Link returns false it means that the pod was not linked because it was already linked.
+	inserted := _fw.Link(pod.UID, pod.Status.PodIP)
+
+	//	So, if it was actually inserted, than we can unflag this firewall for deletion (if it ever was)
+	if inserted {
+		if timer, wasFlagged := manager.flaggedForDeletion[fwKey]; wasFlagged {
+			timer.Stop() // you're going to survive! Be happy!
+			delete(manager.flaggedForDeletion, fwKey)
+		}
+	}
+
+	return _fw, !inserted
 }
 
 // manageDeletedPod makes sure that the appropriate firewall manager will destroy this pod's firewall

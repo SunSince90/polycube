@@ -30,9 +30,6 @@ type PcnFirewall interface {
 }
 
 type DeployedFirewall struct {
-	firewall *k8sfirewall.Firewall
-	rules    map[string]*rulesContainer
-
 	podController pcn_controllers.PodController
 
 	ingressRules map[string][]k8sfirewall.ChainRule
@@ -43,8 +40,10 @@ type DeployedFirewall struct {
 	fwAPI k8sfirewall.FirewallAPI
 
 	//	TODO: remove the following two
-	podUID k8s_types.UID
-	podIP  string
+	podUID   k8s_types.UID
+	podIP    string
+	firewall *k8sfirewall.Firewall
+	rules    map[string]*rulesContainer
 
 	//	TODO: check if this link lock is useful
 	//linkLock sync.Mutex
@@ -119,6 +118,7 @@ func StartFirewall(API k8sfirewall.FirewallAPI, podController pcn_controllers.Po
 	deployedFw.checkedPods = map[string]bool{}
 	deployedFw.linkedPods = map[k8s_types.UID]linkedPod{}
 	deployedFw.podController = podController
+	deployedFw.name = name
 
 	//-------------------------------------
 	//	Get the firewall
