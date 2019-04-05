@@ -204,7 +204,7 @@ std::string K8switch::getFlags() {
 
 void K8switch::reloadConfig() {
   std::string flags(getFlags());
-  
+
   logger()->debug("Reloading code with flags port: {}", flags);
 
   reload(flags + k8switch_code);
