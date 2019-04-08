@@ -3,6 +3,8 @@ package networkpolicies
 import (
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 	"sync"
 
 	pcn_controllers "github.com/SunSince90/polycube/src/components/k8s/pcn_k8s/controllers"
@@ -22,7 +24,7 @@ type PcnDefaultPolicyParser interface {
 	ParseIPBlock(*networking_v1.IPBlock, string) pcn_types.ParsedRules
 	ParsePorts([]networking_v1.NetworkPolicyPort) []pcn_types.ProtoPort
 	ParseSelectors(*meta_v1.LabelSelector, *meta_v1.LabelSelector, string, string) (pcn_types.ParsedRules, error)
-	GetClusterActions([]networking_v1.NetworkPolicyIngressRule, []networking_v1.NetworkPolicyEgressRule, string) pcn_types.FirewallActions
+	BuildActions([]networking_v1.NetworkPolicyIngressRule, []networking_v1.NetworkPolicyEgressRule, string) pcn_types.FirewallActions
 	GetConnectionTemplate(string, string, string, string, []pcn_types.ProtoPort) pcn_types.ParsedRules
 	DoesPolicyAffectPod(*networking_v1.NetworkPolicy, *core_v1.Pod) bool
 
@@ -773,7 +775,7 @@ func (d *DefaultPolicyParser) buildPodQueries(podSelector, namespaceSelector *me
 	} else {
 		//	If namespace selector is nil, we're going to use the one we found on the policy
 		if len(namespace) < 0 {
-			return pcn_types.ObjectQuery{}, pcn_types.ObjectQuery{}, errors.New("Namespace name not provided.")
+			return pcn_types.ObjectQuery{}, pcn_types.ObjectQuery{}, errors.New("Namespace name not provided")
 		}
 
 		queryNs = pcn_types.ObjectQuery{
@@ -932,6 +934,7 @@ func (d *DefaultPolicyParser) GetPodsAffected(policy *networking_v1.NetworkPolic
 	return namespacesGroup, nil
 }
 
+// DoesPolicyAffectPod checks if the provided policy affects the provided pod, returning TRUE if yes.
 func (d *DefaultPolicyParser) DoesPolicyAffectPod(policy *networking_v1.NetworkPolicy, pod *core_v1.Pod) bool {
 
 	//	Not in the same namespace?
@@ -1162,7 +1165,56 @@ func (d *DefaultPolicyParser) GetConnectionTemplate(direction, src, dst, action 
 
 }
 
-func (d *DefaultPolicyParser) GetClusterActions(ingress []networking_v1.NetworkPolicyIngressRule, egress []networking_v1.NetworkPolicyEgressRule, currentNamespace string) pcn_types.FirewallActions {
+//	buildActionKey returns a key to be used in the firewall actions (to know how they should react to a pod event)
+func (d *DefaultPolicyParser) buildActionKey(podLabels, nsLabels map[string]string, nsName string) string {
+	key := ""
+	//	NOTE: why do we sort keys? Because in go, iteration of a map is not order and not always fixed.
+	//	So, by ordering the alphabetically we have a guarantuee that this function always returns the same expected result.
+	//	BTW, pods and namespaces usally have very few keys (e.g.: including those appended by k8s as well, they should be less than 10)
+
+	//-------------------------------------
+	//	Namespace
+	//-------------------------------------
+
+	//	Namespace name always has precedence over labels
+	if len(nsName) > 0 {
+		key += "nsName:" + nsName
+	} else {
+		key += "nsLabels:"
+
+		implodedLabels := []string{}
+		for k, v := range nsLabels {
+			implodedLabels = append(implodedLabels, k+"="+v)
+		}
+		sort.Strings(implodedLabels)
+		key += strings.Join(implodedLabels, ",")
+	}
+
+	key += "|"
+
+	//-------------------------------------
+	//	Pod
+	//-------------------------------------
+
+	//	Pod labels
+	key += "podLabels:"
+	if len(podLabels) < 1 {
+		key += "*"
+		return key
+	}
+
+	implodedLabels := []string{}
+	for k, v := range podLabels {
+		implodedLabels = append(implodedLabels, k+"="+v)
+	}
+	sort.Strings(implodedLabels)
+	key += strings.Join(implodedLabels, ",")
+
+	return key
+}
+
+// BuildActions builds actions that are going to be used by firewalls so they know how to react to pods.
+func (d *DefaultPolicyParser) BuildActions(ingress []networking_v1.NetworkPolicyIngressRule, egress []networking_v1.NetworkPolicyEgressRule, currentNamespace string) pcn_types.FirewallActions {
 	fwActions := pcn_types.FirewallActions{}
 	var waitActions sync.WaitGroup
 	waitActions.Add(2)
@@ -1208,6 +1260,7 @@ func (d *DefaultPolicyParser) GetClusterActions(ingress []networking_v1.NetworkP
 					}
 
 					action.Actions = d.GetConnectionTemplate("ingress", "", "", pcn_types.ActionForward, ports)
+					action.Key = d.buildActionKey(action.PodLabels, action.NamespaceLabels, action.NamespaceName)
 					ingressActions = append(ingressActions, action)
 				}
 			}
@@ -1255,6 +1308,7 @@ func (d *DefaultPolicyParser) GetClusterActions(ingress []networking_v1.NetworkP
 					}
 
 					action.Actions = d.GetConnectionTemplate("egress", "", "", pcn_types.ActionForward, ports)
+					action.Key = d.buildActionKey(action.PodLabels, action.NamespaceLabels, action.NamespaceName)
 					egressActions = append(egressActions, action)
 				}
 			}

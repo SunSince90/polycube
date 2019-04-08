@@ -17,7 +17,7 @@ import (
 )
 
 func Init(podController pcn_controllers.PodController) *DefaultPolicyParser {
-	manager := newDefaultPolicyParser(podController, nil, "node")
+	manager := newDefaultPolicyParser(podController, "node")
 	return manager
 }
 
@@ -1259,4 +1259,25 @@ func TestGetClusterActions(t *testing.T) {
 		assert.Equal(t, actions.Egress[i].NamespaceLabels, expectedEgress[i].NamespaceLabels)
 		assert.Equal(t, actions.Egress[i].PodLabels, expectedEgress[i].PodLabels)
 	}
+}
+
+func TestBuildActionKey(t *testing.T) {
+	testObj := new(MockPodController)
+	parser := Init(testObj)
+
+	namespace := "*"
+	podLabels := map[string]string{}
+	key := parser.buildActionKey(podLabels, nil, namespace)
+	expectedKey := "nsName:*|podLabels:*"
+	assert.Equal(t, expectedKey, key)
+
+	podLabels = map[string]string{"app": "my-app", "stage": "beta", "beta-version": "1.2"}
+	key = parser.buildActionKey(podLabels, nil, namespace)
+	expectedKey = "nsName:*|podLabels:app=my-app,beta-version=1.2,stage=beta"
+	assert.Equal(t, expectedKey, key)
+
+	nsLabels := map[string]string{"env": "production", "app": "my-app"}
+	key = parser.buildActionKey(podLabels, nsLabels, "")
+	expectedKey = "nsLabels:app=my-app,env=production|podLabels:app=my-app,beta-version=1.2,stage=beta"
+	assert.Equal(t, expectedKey, key)
 }

@@ -9,6 +9,7 @@ type FirewallAction struct {
 	PodLabels       map[string]string
 	NamespaceName   string
 	NamespaceLabels map[string]string
+	Key             string
 	Actions         ParsedRules
 }
 

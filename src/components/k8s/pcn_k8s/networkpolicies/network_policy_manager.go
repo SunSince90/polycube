@@ -144,9 +144,12 @@ func (manager *NetworkPolicyManager) DeployDefaultPolicy(policy *networking_v1.N
 
 		go func() {
 			defer podsWaitGroup.Done()
-			fwActions = manager.defaultPolicyParser.GetClusterActions(ingress, egress, ns)
+			fwActions = manager.defaultPolicyParser.BuildActions(ingress, egress, ns)
 		}()
 
+		if len(parsed.Ingress) > 0 && len(fwActions.Ingress) > 0 {
+			//	Just to shut it up temporarily
+		}
 		podsWaitGroup.Wait()
 
 		//	Reusing the waitgroup...
@@ -195,7 +198,7 @@ func (manager *NetworkPolicyManager) RemoveDefaultPolicy(policy *networking_v1.N
 	/*for _, pods := range podsAffected {
 		for _, pod := range pods {
 			fw, exists := manager.localFirewalls[pod.UID]
-			if exists && fw.ImplementsPolicy(policy.Name) {
+			if exists && fw.IsPolicyEnforced(policy.Name) {
 				fw.CeasePolicy(policy.Name)
 			}
 		}
@@ -257,11 +260,11 @@ func (manager *NetworkPolicyManager) checkNewPod(pod *core_v1.Pod) {
 	//	Must this pod enforce any policy?
 	//-------------------------------------
 
-	k8sPolicies, _ := manager.dnpc.GetPolicies(pcn_types.ObjectQuery{By: "name", Name: "*"})
+	k8sPolicies, _ := manager.dnpc.GetPolicies(pcn_types.ObjectQuery{By: "name", Name: "*"}, pod.Namespace)
 
 	//	TODO: in a thread for each of them?
 	for _, kp := range k8sPolicies {
-		if manager.defaultPolicyParser.DoesPolicyAffectPod(&kp, pod) && !fw.ImplementsPolicy(kp.Name) {
+		if manager.defaultPolicyParser.DoesPolicyAffectPod(&kp, pod) && !fw.IsPolicyEnforced(kp.Name) {
 
 			var parsed pcn_types.ParsedRules
 			fwActions := pcn_types.FirewallActions{}
@@ -278,7 +281,7 @@ func (manager *NetworkPolicyManager) checkNewPod(pod *core_v1.Pod) {
 
 			go func() {
 				defer podsWaitGroup.Done()
-				fwActions = manager.defaultPolicyParser.GetClusterActions(ingress, egress, pod.Namespace)
+				fwActions = manager.defaultPolicyParser.BuildActions(ingress, egress, pod.Namespace)
 			}()
 
 			podsWaitGroup.Wait()
@@ -338,7 +341,7 @@ func (manager *NetworkPolicyManager) checkNewPod(pod *core_v1.Pod) {
 
 		/*for _, k8sPolicy := range policiesList {
 			//	Make sure it doesn't already enforce this policy
-			if !fw.ImplementsPolicy(k8sPolicy.Name) {
+			if !fw.IsPolicyEnforced(k8sPolicy.Name) {
 				if manager.defaultPolicyParser.DoesPolicyAffectPod(&k8sPolicy, pod) {
 					//	Deploy the policy just for this pod
 					ingress, egress, policyType := manager.defaultPolicyParser.ParsePolicyTypes(&k8sPolicy.Spec)
@@ -362,7 +365,7 @@ func (manager *NetworkPolicyManager) checkNewPod(pod *core_v1.Pod) {
 			if len(doesIt.Ingress) > 0 || len(doesIt.Egress) > 0 {
 				for _, currentFw := range manager.firewallManager.GetAll() {
 					if currentFw.ForPod() != pod.UID {
-						if currentFw.ImplementsPolicy(currentPolicy.Name) {
+						if currentFw.IsPolicyEnforced(currentPolicy.Name) {
 							_, _, policyType := manager.defaultPolicyParser.ParsePolicyTypes(&currentPolicy.Spec)
 							currentFw.EnforcePolicy(currentPolicy.Name, policyType, doesIt.Ingress, doesIt.Egress)
 						}
@@ -424,7 +427,7 @@ func (manager *NetworkPolicyManager) manageDeletedPod(pod *core_v1.Pod) {
 	//	Does the firewall manager exist for this pod?
 	//	This is actually useless, but who knows...
 	//	Let's do it in a lambda, so we can use defer
-	fw, exists := func() (pcn_firewall.PcnFirewall, bool) {
+	checkExists := func() (pcn_firewall.PcnFirewall, bool) {
 		fwKey := manager.implode(pod.Labels, pod.Namespace)
 		manager.lock.Lock()
 		defer manager.lock.Unlock()
@@ -432,8 +435,9 @@ func (manager *NetworkPolicyManager) manageDeletedPod(pod *core_v1.Pod) {
 		//	First get the firewall
 		fw, exists := manager.localFirewalls[fwKey]
 		return fw, exists
-	}()
+	}
 
+	fw, exists := checkExists()
 	if !exists {
 		//	The firewall manager for this pod does not exist. Then who managed it until now?? This is a very improbable case.
 		l.Warningln("Could not find a firewall manager for dying pod", pod.UID, "!")

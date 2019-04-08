@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	//	TODO-ON-MERGE: change this to the polycube path
@@ -32,8 +31,6 @@ type DefaultNetworkPolicyController struct {
 	stopCh                         chan struct{}
 	maxRetries                     int
 	logBy                          string
-	deployedPolicies               map[string]*networking_v1.NetworkPolicy
-	lock                           sync.Mutex
 }
 
 func NewDefaultNetworkPolicyController(nodeName string, clientset *kubernetes.Clientset) *DefaultNetworkPolicyController {
@@ -158,15 +155,14 @@ func NewDefaultNetworkPolicyController(nodeName string, clientset *kubernetes.Cl
 
 	//	Everything set up, return the controller
 	return &DefaultNetworkPolicyController{
-		nodeName:  nodeName,
-		clientset: clientset,
-		queue:     queue,
+		nodeName:                       nodeName,
+		clientset:                      clientset,
+		queue:                          queue,
 		defaultNetworkPoliciesInformer: npcInformer,
 		dispatchers:                    dispatchers,
 		logBy:                          logBy,
 		maxRetries:                     maxRetries,
 		stopCh:                         make(chan struct{}),
-		deployedPolicies:               map[string]*networking_v1.NetworkPolicy{},
 	}
 }
 
@@ -285,19 +281,16 @@ func (npc *DefaultNetworkPolicyController) processPolicy(event pcn_types.Event) 
 	switch event.Type {
 
 	case pcn_types.New:
-		npc.addNewPolicy(policy)
 		npc.dispatchers.new.Dispatch(policy)
 	case pcn_types.Update:
 		npc.dispatchers.update.Dispatch(policy)
-		//npc.removePolicy(policy)
-		npc.addNewPolicy(policy)
 	case pcn_types.Delete:
-		_splitted := strings.Split(event.Key, "/")
+		//	TODO: check this, how to get dead policies now?
+		/*_splitted := strings.Split(event.Key, "/")
 		policy, ok := npc.deployedPolicies[_splitted[1]]
 		if ok {
 			npc.dispatchers.delete.Dispatch(policy)
-			npc.removePolicy(policy)
-		}
+		}*/
 	}
 
 	//	Does not exist?
@@ -308,9 +301,17 @@ func (npc *DefaultNetworkPolicyController) processPolicy(event pcn_types.Event) 
 	return nil
 }
 
-func (npc *DefaultNetworkPolicyController) GetPolicies(query pcn_types.ObjectQuery) ([]networking_v1.NetworkPolicy, error) {
+// GetPolicies returns a list of network policies that match the specified criteria.
+// Return an empty list if no network policies have been found or an error occurred.
+// In the latter case, it also returns the error occurred.
+func (npc *DefaultNetworkPolicyController) GetPolicies(query pcn_types.ObjectQuery, namespace string) ([]networking_v1.NetworkPolicy, error) {
+
+	//-------------------------------------
+	//	Basic query checks
+	//-------------------------------------
 
 	if query.By != "name" {
+		//	As of now, network policies can only be found by name.
 		return []networking_v1.NetworkPolicy{}, errors.New("Query type not supported")
 	}
 
@@ -318,34 +319,34 @@ func (npc *DefaultNetworkPolicyController) GetPolicies(query pcn_types.ObjectQue
 		return []networking_v1.NetworkPolicy{}, errors.New("No name provided")
 	}
 
-	name := query.Name
-
-	policiesFound := []networking_v1.NetworkPolicy{}
-	if name == "*" {
-		for _, policy := range npc.deployedPolicies {
-			policiesFound = append(policiesFound, *policy)
-		}
-	} else {
-		if policy, exists := npc.deployedPolicies[name]; exists {
-			policiesFound = append(policiesFound, *policy)
-		}
+	if len(namespace) < 1 {
+		return []networking_v1.NetworkPolicy{}, errors.New("No namespace provided")
 	}
 
-	return policiesFound, nil
-}
+	//-------------------------------------
+	//	Find by name
+	//-------------------------------------
 
-func (npc *DefaultNetworkPolicyController) addNewPolicy(policy *networking_v1.NetworkPolicy) {
-	npc.lock.Lock()
-	defer npc.lock.Unlock()
+	if namespace == "*" {
+		namespace = meta_v1.NamespaceAll
+	}
+	lister := npc.clientset.NetworkingV1().NetworkPolicies(namespace)
 
-	npc.deployedPolicies[policy.Name] = policy
-}
+	//	All default policies?
+	if query.Name == "*" {
+		list, err := lister.List(meta_v1.ListOptions{})
+		if err != nil {
+			return []networking_v1.NetworkPolicy{}, err
+		}
+		return list.Items, nil
+	}
 
-func (npc *DefaultNetworkPolicyController) removePolicy(policy *networking_v1.NetworkPolicy) {
-	npc.lock.Lock()
-	defer npc.lock.Unlock()
-
-	delete(npc.deployedPolicies, policy.Name)
+	//	Specific name?
+	list, err := lister.List(meta_v1.ListOptions{FieldSelector: "metadata.name == " + query.Name})
+	if err != nil {
+		return []networking_v1.NetworkPolicy{}, err
+	}
+	return list.Items, nil
 }
 
 func (npc *DefaultNetworkPolicyController) Stop() {
