@@ -399,7 +399,7 @@ func (manager *NetworkPolicyManager) getOrCreateFirewallManager(pod *core_v1.Pod
 		log.Infoln("fw is nil")
 	}
 	//	If Link returns false it means that the pod was not linked because it was already linked.
-	inserted := _fw.Link(pod.UID, pod.Status.PodIP)
+	inserted := _fw.Link(pod)
 
 	//	So, if it was actually inserted, than we can unflag this firewall for deletion (if it ever was)
 	if inserted {
@@ -444,7 +444,7 @@ func (manager *NetworkPolicyManager) manageDeletedPod(pod *core_v1.Pod) {
 		return
 	}
 
-	existed, remaining := fw.Unlink(pod.UID, true)
+	existed, remaining := fw.Unlink(pod, true)
 	if !existed {
 		//	This pod wasn't even linked to the firewall!
 		l.Warningln("Dying pod", pod.UID, "was not linked to its firewall manager", fwKey)

@@ -14,14 +14,6 @@ const (
 
 var MockAPI = new(MockFirewallAPI)
 
-var OkFirewall = DeployedFirewall{
-	fwAPI:    MockAPI,
-	firewall: &k8sfirewall.Firewall{
-		//	Name: the test case you are trying
-	},
-	rules: map[string]*rulesContainer{},
-}
-
 //	Mock the pod controller
 type MockFirewallAPI struct {
 	mock.Mock

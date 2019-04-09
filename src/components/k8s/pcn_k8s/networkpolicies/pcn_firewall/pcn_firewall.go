@@ -14,9 +14,11 @@ import (
 )
 
 type PcnFirewall interface {
-	Link(k8s_types.UID, string) bool
-	Unlink(k8s_types.UID, bool) (bool, int)
+	Link(*core_v1.Pod) bool
+	Unlink(*core_v1.Pod, bool) (bool, int)
 	LinkedPods() map[k8s_types.UID]string
+	IsPodLinked(k8s_types.UID) bool
+	IsPolicyEnforced(string) bool
 
 	EnforcePolicy(string, string, []k8sfirewall.ChainRule, []k8sfirewall.ChainRule, pcn_types.FirewallActions) (error, error)
 	CeasePolicy(string)
@@ -24,15 +26,11 @@ type PcnFirewall interface {
 	ForPod() k8s_types.UID
 	RemoveRules(string, []k8sfirewall.ChainRule) []k8sfirewall.ChainRule
 	RemoveIPReferences(string, string)
-	IsPolicyEnforced(string) bool
 	Destroy() error
 }
 
 type DeployedFirewall struct {
 	podController pcn_controllers.PodController
-
-	ingressRules map[string]map[int32]k8sfirewall.ChainRule
-	egressRules  map[string]map[int32]k8sfirewall.ChainRule
 
 	/*ingressChain *k8sfirewall.Chain
 	egressChain  *k8sfirewall.Chain*/
@@ -46,8 +44,12 @@ type DeployedFirewall struct {
 	//	TODO: check if this link lock is useful
 	//linkLock sync.Mutex
 
+	// ingressRules contains the ingress rules divided by policy
+	ingressRules map[string]map[int32]k8sfirewall.ChainRule
+	// egressRules contains the egress rules divided by policy
+	egressRules map[string]map[int32]k8sfirewall.ChainRule
 	// linkedPods is a map of pods monitored by this firewall manager
-	linkedPods map[k8s_types.UID]linkedPod
+	linkedPods map[k8s_types.UID]string
 	// name is the name of this firewall manager
 	name string
 	// log is a new entry in logger
@@ -56,8 +58,12 @@ type DeployedFirewall struct {
 	lock sync.Mutex
 	// ingressID is the first usable ingress ID
 	ingressID int32
-	//	egressID is the first usable egress ID
+	// egressID is the first usable egress ID
 	egressID int32
+	// ingressDefaultAction is the default action for ingress
+	ingressDefaultAction string
+	// egressDefaultAction is the default action for egress
+	egressDefaultAction string
 
 	policyTypes          map[string]string
 	policyActions        map[string]*policyActions
@@ -69,11 +75,6 @@ type DeployedFirewall struct {
 	//	For caching.
 	/*lastIngressID int32
 	lastEgressID int32*/
-}
-
-type linkedPod struct {
-	ip string
-	sync.Mutex
 }
 
 type policyActions struct {
@@ -118,9 +119,11 @@ func StartFirewall(API k8sfirewall.FirewallAPI, podController pcn_controllers.Po
 
 	deployedFw.ingressID = 1
 	deployedFw.egressID = 1
-	deployedFw.linkedPods = map[k8s_types.UID]linkedPod{}
+	deployedFw.linkedPods = map[k8s_types.UID]string{}
 	deployedFw.podController = podController
 	deployedFw.name = name
+	deployedFw.ingressDefaultAction = pcn_types.ActionForward
+	deployedFw.egressDefaultAction = pcn_types.ActionForward
 	deployedFw.log = log.New()
 
 	//-------------------------------------
@@ -153,38 +156,94 @@ func StartFirewall(API k8sfirewall.FirewallAPI, podController pcn_controllers.Po
 // Link adds a new pod to the list of pods that must be handled by this firewall manager.
 // Best practice is to only link pods with the same labels on the same namespace and node to a firewall manager.
 // It returns TRUE if the pod was inserted, FALSE if it already existed or an error occurred
-func (d *DeployedFirewall) Link(podUID k8s_types.UID, podIP string) bool {
+func (d *DeployedFirewall) Link(pod *core_v1.Pod) bool {
+	l := log.NewEntry(d.log)
+	l.WithFields(log.Fields{"by": "FirewallManager-" + d.name, "method": "Link(" + pod.Name + ")"})
+
 	d.lock.Lock()
 	defer d.lock.Unlock()
 
-	//	Is the firewall ok?
-	if ok, err := d.isFirewallOk(podIP); !ok {
-		d.log.Errorf("Could not link firewall for pod %s: %s", podIP, err.Error())
+	podIP := pod.Status.PodIP
+	podUID := pod.UID
+	name := "fw-" + podIP
+
+	//-------------------------------------
+	//	Check firewall health and pod presence
+	//-------------------------------------
+	if ok, err := d.isFirewallOk(name); !ok {
+		l.Errorf("Could not link firewall for pod %s: %s", podIP, err.Error())
 		return false
 	}
 
-	//	Link it, if not already there
-	_, existed := d.linkedPods[podUID]
-	if !existed {
-		d.linkedPods[podUID] = linkedPod{
-			ip: podIP,
-		}
+	_, alreadyLinked := d.linkedPods[podUID]
+	if alreadyLinked {
+		return false
 	}
 
-	//	TODO: inject the rules for it.
-	//	inject(name)
-	//	TODO: remove this
-	d.log.Infoln("Pod with IP", podIP, "has been linked")
+	//-------------------------------------
+	//	Extract the rules
+	//-------------------------------------
+	//	We are going to get all rules regardless of the policy they belong to, so we can make a single http request.
+	ingressRules := []k8sfirewall.ChainRule{}
+	egressRules := []k8sfirewall.ChainRule{}
+	var waiter sync.WaitGroup
+	waiter.Add(2)
 
-	return existed
+	// -- ingress
+	go func() {
+		defer waiter.Done()
+		for _, rules := range d.ingressRules {
+			for _, rule := range rules {
+				ingressRules = append(ingressRules, rule)
+			}
+		}
+	}()
+
+	// -- egress
+	go func() {
+		defer waiter.Done()
+		for _, rules := range d.egressRules {
+			for _, rule := range rules {
+				egressRules = append(egressRules, rule)
+			}
+		}
+	}()
+	waiter.Wait()
+
+	//-------------------------------------
+	//	Inject and change default actions
+	//-------------------------------------
+	if err := d.injecter(name, ingressRules, egressRules, nil); err != nil {
+		//	injecter fails only if pod's firewall is not ok (it is dying or crashed or not found), so there's no point in going on.
+		l.Warningf("Injecter encountered an error upon linking the pod: %s. Will stop here.", err)
+		return false
+	}
+
+	// -- ingress
+	d.updateDefaultAction(name, "ingress", d.ingressDefaultAction)
+	d.applyRules(name, "ingress")
+
+	// -- egress
+	d.updateDefaultAction(name, "egress", d.ingressDefaultAction)
+	d.applyRules(name, "egress")
+
+	//-------------------------------------
+	//	Finally, link it
+	//-------------------------------------
+	//	From now on, when this firewall manager will react to events, this pod's firewall will be updated as well.
+	d.linkedPods[podUID] = podIP
+
+	return true
 }
 
 // Unlink removes the provided pod from the list of monitored ones by this firewall manager.
 // If the second argument is TRUE, then the provided pod's firewall will be destroyed as well.
 // It returns FALSE if the pod was not among the monitored ones and the number of remaining pods linked.
-func (d *DeployedFirewall) Unlink(podUID k8s_types.UID, destroy bool) (bool, int) {
+func (d *DeployedFirewall) Unlink(pod *core_v1.Pod, destroy bool) (bool, int) {
 	d.lock.Lock()
 	defer d.lock.Unlock()
+
+	podUID := pod.UID
 
 	_, ok := d.linkedPods[podUID]
 	if !ok {
@@ -197,10 +256,16 @@ func (d *DeployedFirewall) Unlink(podUID k8s_types.UID, destroy bool) (bool, int
 	}
 	delete(d.linkedPods, podUID)
 
-	//	TODO: remove this
-	log.Infoln("Pod with IP", d.linkedPods[podUID], "has been unlinked")
-
 	return true, len(d.linkedPods)
+}
+
+// IsPodLinked returns true if the provided pod ID is linked and currently monitored by this firewall manager.
+func (d *DeployedFirewall) IsPodLinked(id k8s_types.UID) bool {
+	d.lock.Lock()
+	defer d.lock.Unlock()
+
+	_, linked := d.linkedPods[id]
+	return linked
 }
 
 // LinkedPods returns a map of pods monitored by this firewall manager.
@@ -208,12 +273,7 @@ func (d *DeployedFirewall) LinkedPods() map[k8s_types.UID]string {
 	d.lock.Lock()
 	defer d.lock.Unlock()
 
-	podsInside := make(map[k8s_types.UID]string, len(d.linkedPods))
-	for k, v := range d.linkedPods {
-		podsInside[k] = v.ip
-	}
-
-	return podsInside
+	return d.linkedPods
 }
 
 //	TODO: remove this
@@ -222,12 +282,11 @@ func (d *DeployedFirewall) ForPod() k8s_types.UID {
 }
 
 func (d *DeployedFirewall) EnforcePolicy(policyName, policyType string, ingress, egress []k8sfirewall.ChainRule, actions pcn_types.FirewallActions) (error, error) {
-
 	//-------------------------------------
 	//	Init
 	//-------------------------------------
 	l := log.NewEntry(d.log)
-	l.WithFields(log.Fields{"by": d.firewall.Name, "method": "EnforcePolicy"})
+	l.WithFields(log.Fields{"by": "FirewallManager-" + d.name, "method": "EnforcePolicy"})
 	l.Infof("firewall %s is going to enforce policy %s", d.name, policyName)
 
 	var iError error
@@ -247,40 +306,24 @@ func (d *DeployedFirewall) EnforcePolicy(policyName, policyType string, ingress,
 	//	Calculate the IDs concurrently
 	//-------------------------------------
 
-	var applyWait sync.WaitGroup
-	applyWait.Add(2)
-
-	d.ingressRules[policyName] = map[int32]k8sfirewall.ChainRule{}
-	d.egressRules[policyName] = map[int32]k8sfirewall.ChainRule{}
-
-	// --- calculate ingress ids
-	go func() {
-		defer applyWait.Done()
-		i := 0
-		for ; i < len(ingress); i++ {
-			ingress[i].Id = d.ingressID + int32(i)
-		}
-
-		d.ingressID += int32(i)
-	}()
-
-	// --- calculate egress ids
-	go func() {
-		defer applyWait.Done()
-		i := 0
-		for ; i < len(egress); i++ {
-			egress[i].Id = d.egressID + int32(i)
-		}
-
-		d.egressID += int32(i)
-	}()
-
-	applyWait.Wait()
+	ingressIDs, egressIDs := d.buildIDs(policyName, ingress, egress)
 
 	//-------------------------------------
 	//	Inject the rules on each firewall
 	//-------------------------------------
 
+	if len(d.linkedPods) < 1 {
+		l.Infoln("There are no linked pods. Stopping here.")
+		return nil, nil
+	}
+
+	var injectWaiter sync.WaitGroup
+	injectWaiter.Add(len(d.linkedPods))
+
+	for _, ip := range d.linkedPods {
+		go d.injecter("fw-"+ip, ingressIDs, egressIDs, &injectWaiter)
+	}
+	injectWaiter.Wait()
 	// TODO: inject the rules...
 
 	/*if ok, _ := d.isFirewallOk(d.podIP); !ok {
@@ -342,33 +385,249 @@ func (d *DeployedFirewall) EnforcePolicy(policyName, policyType string, ingress,
 	}*/
 
 	//-------------------------------------
-	//	Update Reactions & default action
+	//	Update default actions
 	//-------------------------------------
 
-	//	So we just enforced a new policy. The final step is to change actions (if needed: that's what increaseCount does)
+	//	So we just enforced a new policy. The final step is to change actions (if needed)
 	//	But only if we did not do that already!
 	if _, exists := d.policyTypes[policyName]; !exists {
-
-		//	---	Update default actions
 		d.policyTypes[policyName] = policyType
-		switch policyType {
-		case "ingress":
-			d.increaseCount("ingress")
-		case "egress":
-			d.increaseCount("egress")
-		case "*":
-			d.increaseCount("ingress")
-			d.increaseCount("egress")
-		}
+		d.updateCounts("increase", policyType)
 
 		//	---	React to pod events
-		d.policyActions[policyName] = &policyActions{}
+		/*d.policyActions[policyName] = &policyActions{}
 		if len(actions.Ingress) > 0 || len(actions.Egress) > 0 {
 			d.definePolicyActions(policyName, actions.Ingress, actions.Egress)
-		}
+		}*/
 	}
 
 	return iError, eError
+}
+
+// updateCounts updates the internal counts of policies types enforced, making sure default actions are respected.
+// This is just a convenient method used to keep core methods (EnforcePolicy and CeasePolicy) as clean and readable as possible.
+// When possible, this function is used in place of increaseCount or decreaseCount, as it is preferrable to do it like this.
+func (d *DeployedFirewall) updateCounts(operation, policyType string) {
+
+	increase := func() {
+		directions := []string{}
+
+		//	-- Increase the counts and append the directions to update accordingly.
+		if (policyType == "ingress" || policyType == "*") && d.increaseCount("ingress") {
+			directions = append(directions, "ingress")
+		}
+		if (policyType == "egress" || policyType == "*") && d.increaseCount("egress") {
+			directions = append(directions, "egress")
+		}
+
+		if len(directions) < 1 {
+			return
+		}
+
+		// -- Let's now update the default actions.
+		for _, ip := range d.linkedPods {
+			name := "fw-" + ip
+			for _, direction := range directions {
+				d.updateDefaultAction(name, direction, pcn_types.ActionDrop)
+				d.applyRules(name, direction)
+			}
+		}
+	}
+
+	decrease := func() {
+		directions := []string{}
+
+		//	-- Decrease the counts and append the directions to update accordingly.
+		if (policyType == "ingress" || policyType == "*") && d.decreaseCount("ingress") {
+			directions = append(directions, "ingress")
+		}
+		if (policyType == "egress" || policyType == "*") && d.decreaseCount("egress") {
+			directions = append(directions, "egress")
+		}
+
+		if len(directions) < 1 {
+			return
+		}
+
+		// -- Let's now update the default actions.
+		for _, ip := range d.linkedPods {
+			name := "fw-" + ip
+			for _, direction := range directions {
+				d.updateDefaultAction(name, direction, pcn_types.ActionForward)
+				d.applyRules(name, direction)
+			}
+		}
+	}
+
+	switch operation {
+	case "increase":
+		increase()
+	case "decrease":
+		decrease()
+	}
+}
+
+// increaseCount increases the count of policies enforced and changes the default action for the provided direction, if needed.
+// It returns TRUE if the corresponding action should be updated
+func (d *DeployedFirewall) increaseCount(which string) bool {
+	//	Brief: this function is called when a new policy is deployed with the appropriate direction.
+	//	If there are no policies, the default action is FORWARD.
+	//	If there is at least one, then the default action should be updated to DROP, because only what is allowed is forwarded.
+	//	This function returns true when there is only one policy, because that's when we should actually switch to DROP (we were in FORWARD)
+
+	// Ingress
+	if which == "ingress" {
+		d.ingressPoliciesCount++
+
+		if d.ingressPoliciesCount > 0 {
+			d.ingressDefaultAction = pcn_types.ActionDrop
+
+			if d.ingressPoliciesCount == 1 {
+				return true
+			}
+		}
+	}
+
+	//	Egress
+	if which == "egress" {
+		d.egressPoliciesCount++
+
+		if d.egressPoliciesCount > 0 {
+			d.egressDefaultAction = pcn_types.ActionDrop
+
+			if d.egressPoliciesCount == 1 {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// decreaseCount decreases the count of policies enforced and changes the default action for the provided direction, if needed.
+// It returns TRUE if the corresponding action should be updated
+func (d *DeployedFirewall) decreaseCount(which string) bool {
+	//	Brief: this function is called when a policy must be ceased.
+	//	If - after ceasing it - we have no policies enforced, then the default action must be FORWARD.
+	//	If there is at least one, then the default action should remain DROP
+	//	This function returns true when there are no policies enforced, because that's when we should actually switch to FORWARD (we were in DROP)
+
+	if which == "ingress" {
+		d.ingressPoliciesCount--
+
+		if d.ingressPoliciesCount == 0 {
+			d.ingressDefaultAction = pcn_types.ActionForward
+			return true
+		}
+	}
+
+	if which == "egress" {
+		if d.egressPoliciesCount--; d.egressPoliciesCount == 0 {
+			d.egressDefaultAction = pcn_types.ActionForward
+			return true
+		}
+	}
+
+	return false
+}
+
+// buildIDs calculates IDs for each rule provided, updating the first usable ids accordingly.
+// It returns the rules with the appropriate ID, so they can be instantly injected.
+func (d *DeployedFirewall) buildIDs(policyName string, ingress, egress []k8sfirewall.ChainRule) ([]k8sfirewall.ChainRule, []k8sfirewall.ChainRule) {
+	var applyWait sync.WaitGroup
+	applyWait.Add(2)
+	defer applyWait.Wait()
+
+	// The rules in memory
+	d.ingressRules[policyName] = map[int32]k8sfirewall.ChainRule{}
+	d.egressRules[policyName] = map[int32]k8sfirewall.ChainRule{}
+
+	description := "policy=" + policyName
+
+	// --- calculate ingress ids
+	go func() {
+		defer applyWait.Done()
+		i := 0
+		for ; i < len(ingress); i++ {
+			ingress[i].Id = d.ingressID + int32(i)
+			ingress[i].Description = description
+			d.ingressRules[policyName][d.ingressID+int32(i)] = ingress[i]
+		}
+
+		d.ingressID += int32(i)
+	}()
+
+	// --- calculate egress ids
+	go func() {
+		defer applyWait.Done()
+		i := 0
+		for ; i < len(egress); i++ {
+			egress[i].Id = d.egressID + int32(i)
+			egress[i].Description = description
+			d.egressRules[policyName][d.ingressID+int32(i)] = egress[i]
+		}
+
+		d.egressID += int32(i)
+	}()
+
+	return ingress, egress
+}
+
+// injecter is a convenient method for injecting ingress and egress rules for a single firewall
+func (d *DeployedFirewall) injecter(firewall string, ingressRules, egressRules []k8sfirewall.ChainRule, waiter *sync.WaitGroup) error {
+	l := log.NewEntry(d.log)
+	l.WithFields(log.Fields{"by": "FirewallManager-" + d.name, "method": "Injecter(" + firewall + ", ...)"})
+
+	//	Should I notify caller when I'm done?
+	if waiter != nil {
+		defer waiter.Done()
+	}
+
+	//	Is firewall ok?
+	if ok, err := d.isFirewallOk(firewall); !ok {
+		//	TODO: define an array with rules not injected?
+		l.Errorln("Could not inject rules. Firewall is not ok:", err)
+		return err
+	}
+
+	//-------------------------------------
+	//	Inject rules direction concurrently
+	//-------------------------------------
+	var injectWaiter sync.WaitGroup
+	injectWaiter.Add(2)
+	defer injectWaiter.Wait()
+
+	//	TODO: how to handle these if they have errors?
+	go d.injectRules(firewall, "ingress", ingressRules, &injectWaiter)
+	go d.injectRules(firewall, "egress", egressRules, &injectWaiter)
+
+	return nil
+}
+
+// injectRules is a wrapper for firewall's CreateFirewallChainRuleListByID and CreateFirewallChainApplyRulesByID methods.
+func (d *DeployedFirewall) injectRules(firewall, direction string, rules []k8sfirewall.ChainRule, waiter *sync.WaitGroup) error {
+	l := log.NewEntry(d.log)
+	l.WithFields(log.Fields{"by": "FirewallManager-" + d.name, "method": "injectRules(" + firewall + "," + direction + ",...)"})
+
+	//	Should I notify caller when I'm done?
+	if waiter != nil {
+		defer waiter.Done()
+	}
+
+	//-------------------------------------
+	//	Inject & apply
+	//-------------------------------------
+	response, err := d.fwAPI.CreateFirewallChainRuleListByID(nil, firewall, direction, rules)
+	if err != nil {
+		l.Errorln("Error while trying to inject rules:", err, response)
+		return err
+	}
+	if response, err := d.applyRules(firewall, direction); err != nil {
+		l.Errorln("Error while trying to apply rules:", err, response)
+		return err
+	}
+
+	return nil
 }
 
 func (d *DeployedFirewall) definePolicyActions(policyName string, ingress, egress []pcn_types.FirewallAction) {
@@ -430,7 +689,7 @@ func (d *DeployedFirewall) definePolicyActions(policyName string, ingress, egres
 }
 
 func (d *DeployedFirewall) reactToPod(pod *core_v1.Pod, policyName string, action pcn_types.ParsedRules) {
-	// TODO: implement this
+	// TODO: implement this, and make exported
 	//	Does the policy exist?
 	/*if !d.IsPolicyEnforced(policyName) {
 		return
@@ -625,94 +884,6 @@ func (d *DeployedFirewall) unsubscribeToAllActions(policyName string) {
 	}*/
 }
 
-func (d *DeployedFirewall) injectRules(direction string, rules []k8sfirewall.ChainRule) ([]k8sfirewall.ChainRule, error) {
-
-	// TODO: implement this
-	return []k8sfirewall.ChainRule{}, nil
-
-	//	UPDATE: it's better to always inject with a policy instead of doing it anonymously.
-	//	That's why this function is un-exported now
-
-	/*var l = log.WithFields(log.Fields{
-		"by":     d.firewall.Name,
-		"method": "injectRules()",
-	})
-
-	//	Just in case...
-	if rules == nil {
-		//l.Errorln("Rules is nil")
-		return nil, errors.New("Rules is nil")
-	}
-
-	if len(rules) < 1 {
-		//l.Errorln("No rules to inject")
-		return nil, errors.New("No rules to inject")
-	}
-
-	var ID int32 = 1
-	rulesToInject := []k8sfirewall.ChainRule{}
-
-	//-------------------------------------
-	//	Build the IDs & put my pod's IP
-	//-------------------------------------
-
-	chain, response, err := d.fwAPI.ReadFirewallChainByID(nil, d.firewall.Name, direction)
-	if err != nil {
-		l.Errorln("Error while trying to get chain for firewall", d.firewall.Name, "in", direction, ":", err, response)
-		return nil, err
-	}
-
-	//	The last ID is always the default one's, which always increments by one as we push rules.
-	if len(chain.Rule) > 1 {
-		ID = chain.Rule[len(chain.Rule)-2].Id + 1
-	}
-
-	//	Modify the rules
-	for _, rule := range rules {
-		workedRule := k8sfirewall.ChainRule{}
-		if direction == "ingress" {
-			//	Make sure not to target myself
-			if rule.Src != d.podIP {
-				workedRule = rule
-				workedRule.Dst = d.podIP
-			}
-		}
-		if direction == "egress" {
-			//	Make sure not to target myself
-			if rule.Dst != d.podIP {
-				workedRule = rule
-				workedRule.Src = d.podIP
-			}
-		}
-
-		if len(workedRule.Action) > 0 {
-			workedRule.Id = ID
-			ID++
-			rulesToInject = append(rulesToInject, workedRule)
-		}
-	}
-
-	if len(rulesToInject) < 1 {
-		return rulesToInject, nil
-	}
-
-	//-------------------------------------
-	//	Actually Inject
-	//-------------------------------------
-
-	response, err = d.fwAPI.CreateFirewallChainRuleListByID(nil, d.firewall.Name, direction, rulesToInject)
-	if err != nil {
-		l.Errorln("Error while trying to inject rules for firewall", d.firewall.Name, "in", direction, ":", err, response)
-		return []k8sfirewall.ChainRule{}, err
-	}
-
-	if response, err := d.applyRules(direction); err != nil {
-		l.Errorln("Error while trying to apply rules", d.firewall.Name, "in", direction, ":", err, response)
-	}
-
-	return rulesToInject, nil*/
-}
-
 func (d *DeployedFirewall) RemoveRules(direction string, rules []k8sfirewall.ChainRule) []k8sfirewall.ChainRule {
 	//	TODO: implement this
 	return []k8sfirewall.ChainRule{}
@@ -829,78 +1000,8 @@ func (d *DeployedFirewall) RemoveIPReferences(ip, policyName string) {
 	}*/
 }
 
-// increaseCount increases the count of policies enforced and changes the default action for the provided direction, if needed.
-// It returns the default action after increasing for the provided direction
-func (d *DeployedFirewall) increaseCount(which string) string {
-
-	//	NOTE: this function must be called while holding a lock!
-	//	If there is at least one policy, then we must switch the default action to DROP for that type
-	//	E.g.: if the policy had only INGRESS in its spec, then the ingress chain must be set to drop
-
-	action := pcn_types.ActionForward
-
-	if which != "ingress" && which != "egress" {
-		return action
-	}
-
-	// Increment
-	switch which {
-	case "ingress":
-		if d.ingressPoliciesCount++; d.ingressPoliciesCount == 1 {
-			action = pcn_types.ActionDrop
-		}
-	case "egress":
-		if d.egressPoliciesCount++; d.egressPoliciesCount == 1 {
-			action = pcn_types.ActionDrop
-		}
-	}
-
-	// Should we change action?
-	if action == pcn_types.ActionDrop {
-		d.updateDefaultAction(which, pcn_types.ActionDrop)
-		d.applyRules(which)
-	}
-
-	return action
-}
-
-// decreaseCount decreases the count of policies enforced and changes the default action for the provided direction, if needed.
-// It returns the default action after decreasing for the provided direction
-func (d *DeployedFirewall) decreaseCount(which string) string {
-
-	//	NOTE: this function must be called while holding a lock!
-	//	If there are no policies enforced, then we must switch the default action to FORWARD for that type
-	//	E.g.: if the policy had only INGRESS in its spec, then the ingress chain must be set to FORWARD
-
-	action := pcn_types.ActionDrop
-
-	if which != "ingress" && which != "egress" {
-		return action
-	}
-
-	switch which {
-	case "ingress":
-		if d.ingressPoliciesCount--; d.ingressPoliciesCount == 0 {
-			action = pcn_types.ActionForward
-		}
-	case "egress":
-		if d.egressPoliciesCount--; d.egressPoliciesCount == 0 {
-			action = pcn_types.ActionForward
-		}
-	}
-
-	// Should we change action?
-	if action == pcn_types.ActionForward {
-		d.updateDefaultAction(which, pcn_types.ActionForward)
-		d.applyRules(which)
-	}
-
-	return action
-}
-
 // IsPolicyEnforced returns true if this firewall enforces this policy
 func (d *DeployedFirewall) IsPolicyEnforced(name string) bool {
-
 	d.lock.Lock()
 	defer d.lock.Unlock()
 
@@ -911,38 +1012,30 @@ func (d *DeployedFirewall) IsPolicyEnforced(name string) bool {
 }
 
 // isFirewallOk checks if the firewall is ok. Used to check if firewall exists and is healthy
-func (d *DeployedFirewall) isFirewallOk(ip string) (bool, error) {
-	name := "fw-" + ip
-
+func (d *DeployedFirewall) isFirewallOk(firewall string) (bool, error) {
 	//	We are going to do that by reading its uuid
-	if _, _, err := d.fwAPI.ReadFirewallUuidByID(nil, name); err != nil {
+	if _, _, err := d.fwAPI.ReadFirewallUuidByID(nil, firewall); err != nil {
 		return false, err
 	}
-
 	return true, nil
 }
 
-func (d *DeployedFirewall) updateDefaultAction(direction, to string) error {
-	// TODO: implement this
-	return nil
-	/*var l = log.WithFields(log.Fields{
-		"by":     d.firewall.Name,
-		"method": "updateDefaultAction(" + direction + "," + to + ")",
-	})
+// updateDefaultAction is a wrapper for UpdateFirewallChainDefaultByID method.
+func (d *DeployedFirewall) updateDefaultAction(firewall, direction, to string) error {
+	l := log.NewEntry(d.log)
+	l.WithFields(log.Fields{"by": "FirewallManager-" + d.name, "method": "updateDefaultAction(" + firewall + "," + direction + "," + to + ")"})
 
-	response, err := d.fwAPI.UpdateFirewallChainDefaultByID(nil, d.firewall.Name, direction, to)
-
+	response, err := d.fwAPI.UpdateFirewallChainDefaultByID(nil, firewall, direction, to)
 	if err != nil {
-		l.Errorln("Could not set default", direction, "action to forward for firewall", d.firewall.Name, ":", err, response)
+		l.Errorln("Could not update default action:", err, response)
 	}
-	return err*/
+	return err
 }
 
-func (d *DeployedFirewall) applyRules(direction string) (bool, error) {
-	//	TODO: implement this
-	return false, nil
-	/*out, _, err := d.fwAPI.CreateFirewallChainApplyRulesByID(nil, d.firewall.Name, direction)
-	return out.Result, err*/
+// applyRules is a wrapper for CreateFirewallChainApplyRulesByID method.
+func (d *DeployedFirewall) applyRules(firewall, direction string) (bool, error) {
+	out, _, err := d.fwAPI.CreateFirewallChainApplyRulesByID(nil, firewall, direction)
+	return out.Result, err
 }
 
 func (d *DeployedFirewall) Destroy() error {
