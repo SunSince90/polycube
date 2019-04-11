@@ -966,108 +966,7 @@ func TestComplexPolicy(t *testing.T) {
 	assert.ElementsMatch(t, expectedResult.Ingress, firstResult.Ingress)*/
 }
 
-func TestRulesforPod(t *testing.T) {
-	/*noPorts := []parsedProtoPort{}
-	ports := []parsedProtoPort{
-		parsedProtoPort{
-			port:     8080,
-			protocol: "TCP",
-		},
-		parsedProtoPort{
-			port:     8181,
-			protocol: "UDP",
-		},
-	}
-	pod := core_v1.Pod{
-		ObjectMeta: meta_v1.ObjectMeta{
-			UID: "MY-POD-1-100",
-		},
-		Status: core_v1.PodStatus{
-			PodIP: "100.100.100.100",
-		},
-	}
-	notFound := []pcn_types.Pod{
-		pcn_types.Pod{
-			Pod: core_v1.Pod{
-				ObjectMeta: meta_v1.ObjectMeta{
-					UID: "MY-POD-2-150",
-				},
-				Status: core_v1.PodStatus{
-					PodIP: "150.150.150.150",
-				},
-			},
-		},
-	}
-	found := []pcn_types.Pod{
-		pcn_types.Pod{
-			Pod: pod,
-		},
-	}
-
-	manager := Init(nil)
-
-	//	The pod has not been found
-	result := manager.generateRulesForPod(notFound, &pod, noPorts)
-	assert.Empty(t, result.Ingress)
-	assert.Empty(t, result.Egress)
-
-	//	The pod has been found and there are no ports
-	expectedIngress := []k8sfirewall.ChainRule{
-		k8sfirewall.ChainRule{
-			Src:    pod.Status.PodIP,
-			Action: "forward",
-		},
-	}
-	expectedEgress := []k8sfirewall.ChainRule{
-		k8sfirewall.ChainRule{
-			Dst:    pod.Status.PodIP,
-			Action: "forward",
-		},
-	}
-	result = manager.generateRulesForPod(found, &pod, noPorts)
-	assert.NotEmpty(t, result.Ingress)
-	assert.NotEmpty(t, result.Egress)
-	assert.ElementsMatch(t, expectedIngress, result.Ingress)
-	assert.ElementsMatch(t, expectedEgress, result.Egress)
-
-	//	The pod has been found and there are ports
-	expectedIngress = []k8sfirewall.ChainRule{
-		k8sfirewall.ChainRule{
-			Src:     pod.Status.PodIP,
-			L4proto: "TCP",
-			Dport:   ports[0].port,
-			Action:  "forward",
-		},
-		k8sfirewall.ChainRule{
-			Src:     pod.Status.PodIP,
-			L4proto: "UDP",
-			Dport:   ports[1].port,
-			Action:  "forward",
-		},
-	}
-	expectedEgress = []k8sfirewall.ChainRule{
-		k8sfirewall.ChainRule{
-			Dst:     pod.Status.PodIP,
-			L4proto: "TCP",
-			Sport:   ports[0].port,
-			Action:  "forward",
-		},
-		k8sfirewall.ChainRule{
-			Dst:     pod.Status.PodIP,
-			L4proto: "UDP",
-			Sport:   ports[1].port,
-			Action:  "forward",
-		},
-	}
-	result = manager.generateRulesForPod(found, &pod, ports)
-	assert.NotEmpty(t, result.Ingress)
-	assert.NotEmpty(t, result.Egress)
-	assert.ElementsMatch(t, expectedIngress, result.Ingress)
-	assert.ElementsMatch(t, expectedEgress, result.Egress)*/
-
-}
-
-func TestGetClusterActions(t *testing.T) {
+func TestBuildActions(t *testing.T) {
 	tcp := core_v1.ProtocolTCP
 	udp := core_v1.ProtocolUDP
 	port1 := &intstr.IntOrString{
@@ -1159,6 +1058,21 @@ func TestGetClusterActions(t *testing.T) {
 						},
 					},
 				},
+
+				//	Fifth rule: pods with specific labels in all namespaces
+				networking_v1.NetworkPolicyIngressRule{
+					From: []networking_v1.NetworkPolicyPeer{
+						networking_v1.NetworkPolicyPeer{
+
+							PodSelector: &meta_v1.LabelSelector{
+								MatchLabels: podLabels,
+							},
+							NamespaceSelector: &meta_v1.LabelSelector{
+								MatchLabels: map[string]string{},
+							},
+						},
+					},
+				},
 			},
 		},
 	}
@@ -1166,43 +1080,42 @@ func TestGetClusterActions(t *testing.T) {
 	testObj := new(MockPodController)
 	parser := Init(testObj)
 
-	expectedIngress := []pcn_types.FirewallAction{
+	expectedActions := []pcn_types.FirewallAction{
 		pcn_types.FirewallAction{
 			PodLabels:     policy.Spec.Ingress[0].From[0].PodSelector.MatchLabels,
 			NamespaceName: policy.Namespace,
-			Actions:       parser.GetConnectionTemplate("ingress", "10.0.0.1", "", pcn_types.ActionForward, []pcn_types.ProtoPort{}),
+			Templates:     parser.GetConnectionTemplate("ingress", "10.0.0.1", "", pcn_types.ActionForward, []pcn_types.ProtoPort{}),
 		},
 		pcn_types.FirewallAction{
 			PodLabels:     policy.Spec.Ingress[1].From[0].PodSelector.MatchLabels,
 			NamespaceName: policy.Namespace,
-			Actions:       parser.GetConnectionTemplate("ingress", "10.0.0.1", "", pcn_types.ActionForward, []pcn_types.ProtoPort{}),
+			Templates:     parser.GetConnectionTemplate("ingress", "10.0.0.1", "", pcn_types.ActionForward, []pcn_types.ProtoPort{}),
 		},
 		pcn_types.FirewallAction{
 			NamespaceLabels: policy.Spec.Ingress[1].From[1].NamespaceSelector.MatchLabels,
-			Actions:         parser.GetConnectionTemplate("ingress", "10.0.0.1", "", pcn_types.ActionForward, []pcn_types.ProtoPort{}),
+			Templates:       parser.GetConnectionTemplate("ingress", "10.0.0.1", "", pcn_types.ActionForward, []pcn_types.ProtoPort{}),
 		},
 		pcn_types.FirewallAction{
 			PodLabels:       policy.Spec.Ingress[2].From[0].PodSelector.MatchLabels,
 			NamespaceLabels: policy.Spec.Ingress[2].From[0].NamespaceSelector.MatchLabels,
-			Actions:         parser.GetConnectionTemplate("ingress", "10.0.0.1", "", pcn_types.ActionForward, []pcn_types.ProtoPort{}),
+			Templates:       parser.GetConnectionTemplate("ingress", "10.0.0.1", "", pcn_types.ActionForward, []pcn_types.ProtoPort{}),
+		},
+		pcn_types.FirewallAction{
+			PodLabels: policy.Spec.Ingress[2].From[0].PodSelector.MatchLabels,
+			Templates: parser.GetConnectionTemplate("ingress", "10.0.0.1", "", pcn_types.ActionForward, []pcn_types.ProtoPort{}),
 		},
 	}
 
 	ingress, egress, _ := parser.ParsePolicyTypes(&policy.Spec)
-	actions := parser.GetClusterActions(ingress, egress, policy.Namespace)
+	actions := parser.BuildActions(ingress, egress, policy.Namespace)
 
+	//assert.ElementsMatch(t, expectedActions, actions)
 	//	No need to test for the rules as they are tested in GetTemplate
-	for i := 0; i < len(actions.Ingress); i++ {
-		assert.Equal(t, actions.Ingress[i].NamespaceName, expectedIngress[i].NamespaceName)
-		assert.Equal(t, actions.Ingress[i].NamespaceLabels, expectedIngress[i].NamespaceLabels)
-		assert.Equal(t, actions.Ingress[i].PodLabels, expectedIngress[i].PodLabels)
-		fmt.Printf("%+v\n", actions.Ingress[i])
-		/*for t := 0; t < len(actions.Ingress[i].Actions.Ingress); t++ {
-			fmt.Printf("---%+v\n", actions.Ingress[i].Actions.Ingress[t])
-		}*/
-		fmt.Println("--")
+	for i := 0; i < len(actions); i++ {
+		assert.Equal(t, actions[i].NamespaceName, expectedActions[i].NamespaceName)
+		assert.Len(t, actions[i].NamespaceLabels, len(expectedActions[i].NamespaceLabels))
+		assert.Len(t, actions[i].PodLabels, len(expectedActions[i].PodLabels))
 	}
-	assert.Empty(t, actions.Egress)
 
 	//	With egress as well
 
@@ -1245,19 +1158,20 @@ func TestGetClusterActions(t *testing.T) {
 	}
 	policy.Spec.PolicyTypes = append(policy.Spec.PolicyTypes, networking_v1.PolicyTypeEgress)
 
-	expectedEgress := []pcn_types.FirewallAction{
-		pcn_types.FirewallAction{
-			PodLabels:       policy.Spec.Egress[0].To[0].PodSelector.MatchLabels,
-			NamespaceLabels: policy.Spec.Egress[0].To[0].NamespaceSelector.MatchLabels,
-		},
-	}
+	expectedActions = append(expectedActions, pcn_types.FirewallAction{
+		PodLabels:       policy.Spec.Egress[0].To[0].PodSelector.MatchLabels,
+		NamespaceLabels: policy.Spec.Egress[0].To[0].NamespaceSelector.MatchLabels,
+	})
 	ingress, egress, _ = parser.ParsePolicyTypes(&policy.Spec)
-	actions = parser.GetClusterActions(ingress, egress, policy.Namespace)
+	actions = parser.BuildActions(ingress, egress, policy.Namespace)
 
-	for i := 0; i < len(actions.Egress); i++ {
-		assert.Equal(t, actions.Egress[i].NamespaceName, expectedEgress[i].NamespaceName)
-		assert.Equal(t, actions.Egress[i].NamespaceLabels, expectedEgress[i].NamespaceLabels)
-		assert.Equal(t, actions.Egress[i].PodLabels, expectedEgress[i].PodLabels)
+	for i := 0; i < len(actions); i++ {
+		assert.Equal(t, actions[i].NamespaceName, expectedActions[i].NamespaceName)
+		assert.Len(t, actions[i].NamespaceLabels, len(expectedActions[i].NamespaceLabels))
+		assert.Len(t, actions[i].PodLabels, len(expectedActions[i].PodLabels))
+
+		fmt.Printf("%+v\n", actions[i])
+		fmt.Println("---")
 	}
 }
 
@@ -1279,5 +1193,16 @@ func TestBuildActionKey(t *testing.T) {
 	nsLabels := map[string]string{"env": "production", "app": "my-app"}
 	key = parser.buildActionKey(podLabels, nsLabels, "")
 	expectedKey = "nsLabels:app=my-app,env=production|podLabels:app=my-app,beta-version=1.2,stage=beta"
+	assert.Equal(t, expectedKey, key)
+
+	nsLabels = map[string]string{}
+	key = parser.buildActionKey(podLabels, nsLabels, "")
+	expectedKey = "nsName:*|podLabels:app=my-app,beta-version=1.2,stage=beta"
+	assert.Equal(t, expectedKey, key)
+
+	nsLabels = map[string]string{}
+	podLabels = map[string]string{}
+	key = parser.buildActionKey(podLabels, nsLabels, "")
+	expectedKey = "nsName:*|podLabels:*"
 	assert.Equal(t, expectedKey, key)
 }

@@ -41,16 +41,25 @@ type NetworkPolicyManager struct {
 	localFirewalls map[string]pcn_firewall.PcnFirewall
 	//	unscheduleThreshold is the number of HOURS after which a firewall manager should be deleted if no pods are assigned to it.
 	unscheduleThreshold int
-	//	flaggedForDeletion contains ids of firewall managers to delete.
-	//	If a pod is not scheduled for this node for more than X hours, than its firewall manager will be deleted as well.
+	//	flaggedForDeletion contains ids of firewall managers that are scheduled to be deleted.
+	//	Firewall managers will continue updating rules and parse policies even when they have no pods assigned to them anymore (they just won't inject rules anywhere).
+	//  But if this situation persists for at least unscheduleThreshold hours, then they are going to be deleted.
 	flaggedForDeletion map[string]*time.Timer
-	fwAPI              k8sfirewall.FirewallAPI
+	// linkedPods is a map linking local pods to local firewalls.
+	// It is used to check if a pod has changed and needs to be unlinked. It is a very rare situation, but... you know...
+	linkedPods map[k8s_types.UID]string
+
+	// TODO: do I really need this?
+	fwAPI k8sfirewall.FirewallAPI
 }
 
 type checkedPod struct {
 	lastKnownIP string
 	sync.Mutex
 }
+
+// For testing purposes
+var StartFirewall = pcn_firewall.StartFirewall
 
 func StartNetworkPolicyManager(basePath string, dnpc *pcn_controllers.DefaultNetworkPolicyController, podController pcn_controllers.PodController, nodeName string) PcnNetworkPolicyManager {
 	l := log.NewEntry(log.New())
@@ -70,6 +79,7 @@ func StartNetworkPolicyManager(basePath string, dnpc *pcn_controllers.DefaultNet
 		localFirewalls:      map[string]pcn_firewall.PcnFirewall{},
 		unscheduleThreshold: UnscheduleThreshold,
 		flaggedForDeletion:  map[string]*time.Timer{},
+		linkedPods:          map[k8s_types.UID]string{},
 
 		log:   log.New(),
 		fwAPI: fwAPI,
@@ -108,7 +118,8 @@ func (manager *NetworkPolicyManager) DeployDefaultPolicy(policy *networking_v1.N
 	//-------------------------------------
 	//	The basics
 	//-------------------------------------
-	nsPods, err := manager.defaultPolicyParser.GetPodsAffected(policy)
+	//	TODO: change this with firewall affected.
+	/*nsPods, err := manager.defaultPolicyParser.GetPodsAffected(policy)
 	if err != nil {
 		l.Errorln("Error while trying to get pods affected by policy.", err)
 		return
@@ -163,27 +174,27 @@ func (manager *NetworkPolicyManager) DeployDefaultPolicy(policy *networking_v1.N
 				//	If this pod is not ready or is terminating, then don't proceed
 				if currentPod.Status.Phase != core_v1.PodRunning || currentPod.DeletionTimestamp != nil {
 					return
-				}
+				}*/
 
-				//	Deploy...
-				//	Create the firewall (or get it if already exists)
-				/*fw, exists := manager.localFirewalls[pod.UID]
-				if !exists {
-					l.Errorln("No firewall exists for pod", pod.Status.PodIP)
-					return
-				}
+	//	Deploy...
+	//	Create the firewall (or get it if already exists)
+	/*fw, exists := manager.localFirewalls[pod.UID]
+	if !exists {
+		l.Errorln("No firewall exists for pod", pod.Status.PodIP)
+		return
+	}
 
-				//-------------------------------------
-				//	Inject the rules and the actions
-				//-------------------------------------
+	//-------------------------------------
+	//	Inject the rules and the actions
+	//-------------------------------------
 
-				fw.EnforcePolicy(policy.Name, policyType, parsed.Ingress, parsed.Egress, fwActions)*/
+	fw.EnforcePolicy(policy.Name, policyType, parsed.Ingress, parsed.Egress, fwActions)*/
 
-			}(pod)
+	/*			}(pod)
 		}
 
 		podsWaitGroup.Wait()
-	}
+	}*/
 }
 
 func (manager *NetworkPolicyManager) RemoveDefaultPolicy(policy *networking_v1.NetworkPolicy) {
@@ -229,7 +240,7 @@ func (manager *NetworkPolicyManager) implode(labels map[string]string, ns string
 	sort.Strings(implodedLabels)
 
 	//	Join the key and the labels
-	return key + strings.Join(implodedLabels, ";")
+	return key + strings.Join(implodedLabels, ",")
 }
 
 // checkNewPod will perform some checks on the new pod just updated.
@@ -248,26 +259,47 @@ func (manager *NetworkPolicyManager) checkNewPod(pod *core_v1.Pod) {
 		return
 	}
 
-	//	Did I already create a firewall for this?
-	fw, existed := manager.getOrCreateFirewallManager(pod)
+	//	Get or create the firewall manager for this pod and then link it.
+	//	Doing it a lambda so we can use defer, and we can block the thread for as short time as possible
+	linkPod := func() (bool, pcn_firewall.PcnFirewall) {
+		manager.lock.Lock()
+		defer manager.lock.Unlock()
 
-	if existed {
-		//	The pod is already linked to the firewall: no point to go on.
+		fw, justCreated := manager.getOrCreateFirewallManager(pod)
+
+		//	Link returns false when the pod was not linked because it was already linked,
+		// 	or if the pod's firewall was not ok.
+		inserted := fw.Link(pod)
+
+		if inserted {
+			manager.linkedPods[pod.UID] = fw.Name()
+			manager.unflagForDeletion(fw.Name())
+		}
+
+		// If the firewall manager already existed there is no point in going on: policies are already there.
+		// But if it was just created we need to parse rules even if the pod was not linked correctly,
+		// because it is very probable that the pod will be deployed again, so when it happens it'll have rules ready.
+		// This will also prevent us from depleting resources if the pod is unstable: this will be done just once.
+		return justCreated, fw
+	}
+
+	shouldInit, fw := linkPod()
+	if !shouldInit {
+		//	Firewall is already inited. You can stop here.
 		return
 	}
 
 	//-------------------------------------
 	//	Must this pod enforce any policy?
 	//-------------------------------------
-
 	k8sPolicies, _ := manager.dnpc.GetPolicies(pcn_types.ObjectQuery{By: "name", Name: "*"}, pod.Namespace)
 
 	//	TODO: in a thread for each of them?
 	for _, kp := range k8sPolicies {
-		if manager.defaultPolicyParser.DoesPolicyAffectPod(&kp, pod) && !fw.IsPolicyEnforced(kp.Name) {
+		if manager.defaultPolicyParser.DoesPolicyAffectPod(&kp, pod) {
 
 			var parsed pcn_types.ParsedRules
-			fwActions := pcn_types.FirewallActions{}
+			fwActions := []pcn_types.FirewallAction{}
 			ingress, egress, policyType := manager.defaultPolicyParser.ParsePolicyTypes(&kp.Spec)
 
 			var podsWaitGroup sync.WaitGroup
@@ -383,79 +415,104 @@ func (manager *NetworkPolicyManager) checkNewPod(pod *core_v1.Pod) {
 }
 
 // getOrCreateFirewallManager gets a local firewall manager for this pod or creates one if not there.
-// Returns the newly created/already existing firewall manager and TRUE if this pod was already linked.
+// Returns the newly created/already existing firewall manager, its key, and TRUE if it was just created.
 func (manager *NetworkPolicyManager) getOrCreateFirewallManager(pod *core_v1.Pod) (pcn_firewall.PcnFirewall, bool) {
+	l := log.NewEntry(manager.log)
+	l.WithFields(log.Fields{"by": PM, "method": "getOrCreateFirewallManager(" + pod.Name + ")"})
+
 	fwKey := manager.implode(pod.Labels, pod.Namespace)
-	manager.lock.Lock()
-	defer manager.lock.Unlock()
 
-	//	First get the firewall
-	_fw, exists := manager.localFirewalls[fwKey]
-	if !exists {
-		manager.localFirewalls[fwKey] = pcn_firewall.StartFirewall(manager.fwAPI, manager.podController, fwKey)
-	}
-
-	if _fw == nil {
-		log.Infoln("fw is nil")
-	}
-	//	If Link returns false it means that the pod was not linked because it was already linked.
-	inserted := _fw.Link(pod)
-
-	//	So, if it was actually inserted, than we can unflag this firewall for deletion (if it ever was)
-	if inserted {
-		if timer, wasFlagged := manager.flaggedForDeletion[fwKey]; wasFlagged {
-			timer.Stop() // you're going to survive! Be happy!
-			delete(manager.flaggedForDeletion, fwKey)
+	//-------------------------------------
+	//	Already linked?
+	//-------------------------------------
+	linkedFw, wasLinked := manager.linkedPods[pod.UID]
+	if wasLinked && linkedFw != fwKey {
+		//	This pod was already linked to a firewall manager, but it's not the one we expected.
+		// 	This means that someone (user or plugin) changed this pod's labels, so we now need to unlink the pod from its current fw manager.
+		prevFw, exists := manager.localFirewalls[linkedFw]
+		if exists {
+			unlinked, remaining := prevFw.Unlink(pod, pcn_firewall.CleanFirewall)
+			if !unlinked {
+				l.Warningln("Pod's was not linked in previous firewall manager!")
+			} else {
+				if remaining == 0 {
+					manager.flagForDeletion(prevFw.Name())
+				}
+				delete(manager.linkedPods, pod.UID)
+			}
+		} else {
+			l.Warningln("Could not find pod's previous firewall manager!")
 		}
 	}
 
-	return _fw, !inserted
+	//-------------------------------------
+	//	Create and link it
+	//-------------------------------------
+	fw, exists := manager.localFirewalls[fwKey]
+	if !exists {
+		manager.localFirewalls[fwKey] = StartFirewall(manager.fwAPI, manager.podController, fwKey)
+		fw = manager.localFirewalls[fwKey]
+		return fw, true
+	}
+	return fw, false
+}
+
+// flagForDeletion flags a firewall for deletion
+func (manager *NetworkPolicyManager) flagForDeletion(fwKey string) {
+	_, wasFlagged := manager.flaggedForDeletion[fwKey]
+
+	//	Was it flagged?
+	if !wasFlagged {
+		manager.flaggedForDeletion[fwKey] = time.AfterFunc(time.Hour*time.Duration(manager.unscheduleThreshold), func() {
+			manager.deleteFirewallManager(fwKey)
+		})
+	}
+}
+
+// unflagForDeletion unflags a firewall manager for deletion
+func (manager *NetworkPolicyManager) unflagForDeletion(fwKey string) {
+	timer, wasFlagged := manager.flaggedForDeletion[fwKey]
+
+	//	Was it flagged?
+	if wasFlagged {
+		timer.Stop() // you're going to survive! Be happy!
+		delete(manager.flaggedForDeletion, fwKey)
+	}
 }
 
 // manageDeletedPod makes sure that the appropriate firewall manager will destroy this pod's firewall
 func (manager *NetworkPolicyManager) manageDeletedPod(pod *core_v1.Pod) {
 	l := log.NewEntry(manager.log)
-	l.WithFields(log.Fields{"by": PM, "method": "manageDeletePod(" + pod.Name + ")"})
+	l.WithFields(log.Fields{"by": PM, "method": "manageDeletedPod(" + pod.Name + ")"})
 
 	if pod.Namespace == "kube-system" {
-		l.Infoln("Pod", pod.Name, "belongs to the kube-system namespaces: no point in checking its firewall manager. Will stop here.")
+		l.Infoln("Pod", pod.Name, "belongs to the kube-system namespace: no point in checking its firewall manager. Will stop here.")
 		return
 	}
 
 	fwKey := manager.implode(pod.Labels, pod.Namespace)
+	defer delete(manager.linkedPods, pod.UID)
 
-	//	Does the firewall manager exist for this pod?
-	//	This is actually useless, but who knows...
-	//	Let's do it in a lambda, so we can use defer
-	checkExists := func() (pcn_firewall.PcnFirewall, bool) {
-		fwKey := manager.implode(pod.Labels, pod.Namespace)
-		manager.lock.Lock()
-		defer manager.lock.Unlock()
+	manager.lock.Lock()
+	defer manager.lock.Unlock()
 
-		//	First get the firewall
-		fw, exists := manager.localFirewalls[fwKey]
-		return fw, exists
-	}
-
-	fw, exists := checkExists()
+	//	First get the firewall
+	fw, exists := manager.localFirewalls[fwKey]
 	if !exists {
-		//	The firewall manager for this pod does not exist. Then who managed it until now?? This is a very improbable case.
+		//	The firewall manager for this pod does not exist. Then who managed it until now? This is a very improbable case.
 		l.Warningln("Could not find a firewall manager for dying pod", pod.UID, "!")
 		return
 	}
 
-	existed, remaining := fw.Unlink(pod, true)
-	if !existed {
+	wasLinked, remaining := fw.Unlink(pod, pcn_firewall.DestroyFirewall)
+	if !wasLinked {
 		//	This pod wasn't even linked to the firewall!
 		l.Warningln("Dying pod", pod.UID, "was not linked to its firewall manager", fwKey)
 		return
 	}
 
 	if remaining == 0 {
-		//	This firewall manager is not monitoring anyone anymore. Let's flag it for deletion.
-		manager.flaggedForDeletion[fwKey] = time.AfterFunc(time.Hour*time.Duration(manager.unscheduleThreshold), func() {
-			manager.deleteFirewallManager(fwKey)
-		})
+		manager.flagForDeletion(fwKey)
 	}
 }
 
@@ -468,4 +525,5 @@ func (manager *NetworkPolicyManager) deleteFirewallManager(fwKey string) {
 	//	The garbage collector will take care of destroying everything inside it now that no one points to it anymore.
 	//	Goodbye!
 	delete(manager.localFirewalls, fwKey)
+	delete(manager.flaggedForDeletion, fwKey)
 }
