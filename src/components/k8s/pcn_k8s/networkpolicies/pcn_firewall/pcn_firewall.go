@@ -37,6 +37,10 @@ type DeployedFirewall struct {
 	ingressRules map[string]map[int32]k8sfirewall.ChainRule
 	// egressRules contains the egress rules divided by policy
 	egressRules map[string]map[int32]k8sfirewall.ChainRule
+	// ingressIPs serves as a cache for finding deleting rules without looping through all ingress rules
+	ingressIPs map[string]map[int32]string
+	// egressIPs serves as a cache for finding deleting rules without looping through all egress rules
+	egressIPs map[string]map[int32]string
 	// linkedPods is a map of pods monitored by this firewall manager
 	linkedPods map[k8s_types.UID]string
 	// Name is the name of this firewall manager
@@ -62,7 +66,11 @@ type DeployedFirewall struct {
 
 	policyActions map[string]*subscriptions
 	checkLock     sync.Mutex
-	checkedPods   map[string]bool
+
+	//	pod updates should not happen a lot of times after the first time they are in running state.
+	//	Some duplicate rules may be found (it should be very rare but they won't do any harm.)
+	//	TODO: what if user changes labels at run time?
+	//checkedPods   map[string]bool
 	//	TODO: remove the following two
 	podUID   k8s_types.UID
 	podIP    string
@@ -73,6 +81,11 @@ type DeployedFirewall struct {
 	//	For caching.
 	/*lastIngressID int32
 	lastEgressID int32*/
+}
+
+type ruleIDs struct {
+	ingress []int32
+	egress  []int32
 }
 
 type subscriptions struct {
@@ -112,7 +125,7 @@ func StartFirewall(API k8sfirewall.FirewallAPI, podController pcn_controllers.Po
 	deployedFw.ingressPoliciesCount = 0
 	deployedFw.egressPoliciesCount = 0
 	deployedFw.policyTypes = map[string]string{}
-	deployedFw.checkedPods = map[string]bool{}
+	//deployedFw.checkedPods = map[string]bool{}
 
 	deployedFw.policyActions = map[string]*subscriptions{}
 	deployedFw.ingressID = FirstIngressID
@@ -123,6 +136,8 @@ func StartFirewall(API k8sfirewall.FirewallAPI, podController pcn_controllers.Po
 	deployedFw.ingressDefaultAction = pcn_types.ActionForward
 	deployedFw.egressDefaultAction = pcn_types.ActionForward
 	deployedFw.log = log.New()
+	deployedFw.ingressIPs = map[string]map[int32]string{}
+	deployedFw.egressIPs = map[string]map[int32]string{}
 
 	//-------------------------------------
 	//	Get the firewall
@@ -331,7 +346,7 @@ func (d *DeployedFirewall) EnforcePolicy(policyName, policyType string, ingress,
 	//	Calculate the IDs concurrently
 	//-------------------------------------
 
-	ingressIDs, egressIDs := d.buildIDs(policyName, ingress, egress)
+	ingressIDs, egressIDs := d.buildIDs(policyName, "", ingress, egress)
 
 	//-------------------------------------
 	//	Update default actions
@@ -506,7 +521,7 @@ func (d *DeployedFirewall) decreaseCount(which string) bool {
 
 // buildIDs calculates IDs for each rule provided, updating the first usable ids accordingly.
 // It returns the rules with the appropriate ID, so they can be instantly injected.
-func (d *DeployedFirewall) buildIDs(policyName string, ingress, egress []k8sfirewall.ChainRule) ([]k8sfirewall.ChainRule, []k8sfirewall.ChainRule) {
+func (d *DeployedFirewall) buildIDs(policyName, target string, ingress, egress []k8sfirewall.ChainRule) ([]k8sfirewall.ChainRule, []k8sfirewall.ChainRule) {
 	var applyWait sync.WaitGroup
 	applyWait.Add(2)
 	defer applyWait.Wait()
@@ -524,6 +539,15 @@ func (d *DeployedFirewall) buildIDs(policyName string, ingress, egress []k8sfire
 		for ; i < len(ingress); i++ {
 			ingress[i].Id = d.ingressID + int32(i)
 			ingress[i].Description = description
+			if len(target) > 0 {
+				ingress[i].Src = target
+
+				//	Store its ID in memory, so we can delete it instantly without looping through rules
+				if _, exists := d.ingressIPs[target]; !exists {
+					d.ingressIPs[target] = map[int32]string{}
+				}
+				d.ingressIPs[target][ingress[i].Id] = policyName
+			}
 			d.ingressRules[policyName][d.ingressID+int32(i)] = ingress[i]
 		}
 
@@ -537,7 +561,16 @@ func (d *DeployedFirewall) buildIDs(policyName string, ingress, egress []k8sfire
 		for ; i < len(egress); i++ {
 			egress[i].Id = d.egressID + int32(i)
 			egress[i].Description = description
-			d.egressRules[policyName][d.ingressID+int32(i)] = egress[i]
+			if len(target) > 0 {
+				egress[i].Dst = target
+
+				//	Store its ID in memory, so we can delete it instantly without looping through rules
+				if _, exists := d.egressIPs[target]; !exists {
+					d.egressIPs[target] = map[int32]string{}
+				}
+				d.egressIPs[target][egress[i].Id] = policyName
+			}
+			d.egressRules[policyName][d.egressID+int32(i)] = egress[i]
 		}
 
 		d.egressID += int32(i)
@@ -603,6 +636,7 @@ func (d *DeployedFirewall) injectRules(firewall, direction string, rules []k8sfi
 	return nil
 }
 
+// definePolicyActions subscribes to the appropriate events and defines the actions to be taken when that event happens.
 func (d *DeployedFirewall) definePolicyActions(policyName string, actions []pcn_types.FirewallAction) {
 	for _, action := range actions {
 		shouldSubscribe := false
@@ -679,17 +713,7 @@ func (d *DeployedFirewall) reactToPod(event pcn_types.EventType, pod *core_v1.Po
 	//-------------------------------------
 
 	update := func() {
-		//	Pod has
-		checkID := actionKey + "/" + string(pod.UID)
-		if _, alreadyChecked := d.checkedPods[checkID]; alreadyChecked {
-			//	Pod already triggered an update. No need to do anything else.
-			//	TODO: if pod has changed labels, we need to trigger a delete!
-			return
-		}
-		defer func() {
-			d.checkedPods[checkID] = true
-		}()
-
+		//	NOTE: read the note on checkedPods.
 		ingress := []k8sfirewall.ChainRule{}
 		egress := []k8sfirewall.ChainRule{}
 
@@ -697,7 +721,7 @@ func (d *DeployedFirewall) reactToPod(event pcn_types.EventType, pod *core_v1.Po
 		//	Usually an update only consists of few rules, so this should be very fast.
 		for policy, rules := range actions.actions {
 			if d.IsPolicyEnforced(policy) {
-				ingressRules, egressRules := d.buildIDs(policy, rules.Ingress, rules.Egress)
+				ingressRules, egressRules := d.buildIDs(policy, pod.Status.PodIP, rules.Ingress, rules.Egress)
 				ingress = append(ingress, ingressRules...)
 				egress = append(egress, egressRules...)
 			}
