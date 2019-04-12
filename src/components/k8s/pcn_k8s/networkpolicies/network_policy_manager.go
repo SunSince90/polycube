@@ -259,6 +259,8 @@ func (manager *NetworkPolicyManager) checkNewPod(pod *core_v1.Pod) {
 		return
 	}
 
+	l.Infoln("checking new pod", pod.Name) // DELETE-ME
+
 	//	Get or create the firewall manager for this pod and then link it.
 	//	Doing it a lambda so we can use defer, and we can block the thread for as short time as possible
 	linkPod := func() (bool, pcn_firewall.PcnFirewall) {
@@ -274,6 +276,7 @@ func (manager *NetworkPolicyManager) checkNewPod(pod *core_v1.Pod) {
 		if inserted {
 			manager.linkedPods[pod.UID] = fw.Name()
 			manager.unflagForDeletion(fw.Name())
+			l.Infoln("POD LINKED", pod.Name) // DELETE-ME
 		}
 
 		// If the firewall manager already existed there is no point in going on: policies are already there.
@@ -286,6 +289,7 @@ func (manager *NetworkPolicyManager) checkNewPod(pod *core_v1.Pod) {
 	shouldInit, fw := linkPod()
 	if !shouldInit {
 		//	Firewall is already inited. You can stop here.
+		l.Infoln("SHOULD NOT INIT") // DELETE-ME
 		return
 	}
 
@@ -293,11 +297,12 @@ func (manager *NetworkPolicyManager) checkNewPod(pod *core_v1.Pod) {
 	//	Must this pod enforce any policy?
 	//-------------------------------------
 	k8sPolicies, _ := manager.dnpc.GetPolicies(pcn_types.ObjectQuery{By: "name", Name: "*"}, pod.Namespace)
-
+	l.Infoln("FOUND", len(k8sPolicies), "policies") // DELETE-ME
 	//	TODO: in a thread for each of them?
 	for _, kp := range k8sPolicies {
+		l.Infoln("checking policy", kp.Name) // DELETE-ME
 		if manager.defaultPolicyParser.DoesPolicyAffectPod(&kp, pod) {
-
+			l.Infoln(kp.Name, "affects this pod") // DELETE-ME
 			var parsed pcn_types.ParsedRules
 			fwActions := []pcn_types.FirewallAction{}
 			ingress, egress, policyType := manager.defaultPolicyParser.ParsePolicyTypes(&kp.Spec)
@@ -309,14 +314,18 @@ func (manager *NetworkPolicyManager) checkNewPod(pod *core_v1.Pod) {
 			go func() {
 				defer podsWaitGroup.Done()
 				parsed = manager.defaultPolicyParser.ParseRules(ingress, egress, pod.Namespace)
+				l.Infof("parsed ing %+v\n", parsed.Ingress) // DELETE-ME
+				l.Infof("parsed eg %+v\n", parsed.Egress)   // DELETE-ME
 			}()
 
 			go func() {
 				defer podsWaitGroup.Done()
 				fwActions = manager.defaultPolicyParser.BuildActions(ingress, egress, pod.Namespace)
+				l.Infof("actions %+v\n", fwActions) // DELETE-ME
 			}()
 
 			podsWaitGroup.Wait()
+			l.Infoln("enforcing the policy", kp.Name) // DELETE-ME
 			fw.EnforcePolicy(kp.Name, policyType, parsed.Ingress, parsed.Egress, fwActions)
 		}
 	}
