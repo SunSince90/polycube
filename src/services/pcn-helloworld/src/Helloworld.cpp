@@ -25,63 +25,19 @@
 using namespace polycube::service;
 
 Helloworld::Helloworld(const std::string name, const HelloworldJsonObject &conf)
-    : Cube(conf.getBase(), {helloworld_code_ingress}, {}) {
-  logger()->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [helloworld] [%n] [%l] %v");
-  logger()->info("Creating helloworld instance");
+    : Cube(conf.getBase(), {helloworld_code_ingress}, {}),
+      HelloworldBase(name) {
+  logger()->info("Creating Helloworld instance");
+  setAction(conf.getAction());
 
-  // TODO: action should have a default value, so the actionIsSet control could
-  // be ommitted.
-  if (conf.actionIsSet()) {
-    setAction(conf.getAction());
-  } else {
-    setAction(HelloworldActionEnum::DROP);
-  }
-
-  // set an initial state before doing any change to the configuration
-  // UINT16_MAX means that the port is not connected
-  auto ports_map = get_array_table<uint16_t>("ports_map");
-  ports_map.set(0, UINT16_MAX);
-  ports_map.set(1, UINT16_MAX);
+  // initialize ports map (at this point there are not ports)
+  update_ports_map();
 
   addPortsList(conf.getPorts());
 }
 
 Helloworld::~Helloworld() {
-  logger()->info("destroying helloworld instance");
-}
-
-void Helloworld::update(const HelloworldJsonObject &conf) {
-  // This method updates all the object/parameter in Helloworld object specified
-  // in the conf JsonObject.
-  // You can modify this implementation.
-
-  // update base cube implementation
-  Cube::set_conf(conf.getBase());
-
-  if (conf.actionIsSet()) {
-    setAction(conf.getAction());
-  }
-
-  if (conf.portsIsSet()) {
-    for (auto &i : conf.getPorts()) {
-      auto name = i.getName();
-      auto m = getPorts(name);
-      m->update(i);
-    }
-  }
-}
-
-HelloworldJsonObject Helloworld::toJsonObject() {
-  HelloworldJsonObject conf;
-  conf.setBase(Cube::to_json());
-
-  conf.setAction(getAction());
-
-  for (auto &i : getPortsList()) {
-    conf.addPorts(i->toJsonObject());
-  }
-
-  return conf;
+  logger()->info("Destroying Helloworld instance");
 }
 
 void Helloworld::packet_in(Ports &port, polycube::service::PacketInMetadata &md,
@@ -99,76 +55,36 @@ void Helloworld::setAction(const HelloworldActionEnum &value) {
   get_array_table<uint8_t>("action_map").set(0x0, action);
 }
 
-std::shared_ptr<Ports> Helloworld::getPorts(const std::string &name) {
-  return get_port(name);
-}
-
-std::vector<std::shared_ptr<Ports>> Helloworld::getPortsList() {
-  return get_ports();
-}
-
 void Helloworld::addPorts(const std::string &name,
                           const PortsJsonObject &conf) {
   if (get_ports().size() == 2) {
     throw std::runtime_error("maximum number of ports reached");
   }
 
-  auto p = add_port<PortsJsonObject>(name, conf);
+  add_port<PortsJsonObject>(name, conf);
   logger()->info("port {0} was connected", name);
-
-  auto ports_table = get_array_table<uint16_t>("ports_map");
-
-  uint32_t port_map_index;
-  try {
-    // Look for first free entry to save the port id
-    if (ports_table.get(0x0) == UINT16_MAX) {
-      port_map_index = 0x0;
-    } else if (ports_table.get(0x1) == UINT16_MAX) {
-      port_map_index = 0x1;
-    }
-  } catch (std::exception &e) {
-    logger()->error("port {0} does not exist", name);
-    // TODO: should Cube::remove_port be called?
-    throw std::runtime_error("Port does not exist");
-  }
-
-  ports_table.set(port_map_index, p->index());
-}
-
-void Helloworld::addPortsList(const std::vector<PortsJsonObject> &conf) {
-  for (auto &i : conf) {
-    std::string name_ = i.getName();
-    addPorts(name_, i);
-  }
-}
-
-void Helloworld::replacePorts(const std::string &name,
-                              const PortsJsonObject &conf) {
-  delPorts(name);
-  std::string name_ = conf.getName();
-  addPorts(name_, conf);
+  update_ports_map();
 }
 
 void Helloworld::delPorts(const std::string &name) {
-  int index = get_port(name)->index();
-
-  auto ports_table = get_array_table<uint16_t>("ports_map");
-
-  uint32_t port_map_index;
-  if (ports_table.get(0x0) == index) {
-    port_map_index = 0x0;
-  } else if (ports_table.get(0x1) == index) {
-    port_map_index = 0x1;
-  }
-  // mark entry as free
-  ports_table.set(port_map_index, UINT16_MAX);
   remove_port(name);
   logger()->info("port {0} was removed", name);
+  update_ports_map();
 }
 
-void Helloworld::delPortsList() {
+void Helloworld::update_ports_map() {
+  auto ports_table = get_array_table<uint16_t>("ports_map");
   auto ports = get_ports();
-  for (auto it : ports) {
-    delPorts(it->name());
+  uint32_t i = 0;
+
+  for (auto &port: ports) {
+    ports_table.set(i, port->index());
+    i++;
+  }
+
+  // mark other ports as empty (UINT16_MAX means empty)
+  while (i < 2) {
+    ports_table.set(i, UINT16_MAX);
+    i++;
   }
 }
