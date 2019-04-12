@@ -937,13 +937,13 @@ func (d *DefaultPolicyParser) GetPodsAffected(policy *networking_v1.NetworkPolic
 // DoesPolicyAffectPod checks if the provided policy affects the provided pod, returning TRUE if yes.
 func (d *DefaultPolicyParser) DoesPolicyAffectPod(policy *networking_v1.NetworkPolicy, pod *core_v1.Pod) bool {
 
-	//	Not in the same namespace?
-	if len(policy.Namespace) > 0 && policy.Namespace != pod.Namespace {
+	//	MatchExpressions? (we don't support them yet)
+	if len(policy.Spec.PodSelector.MatchExpressions) > 0 {
 		return false
 	}
 
-	//	MatchExpressions? (we don't support them yet)
-	if len(policy.Spec.PodSelector.MatchExpressions) < 1 {
+	//	Not in the same namespace?
+	if policy.Namespace != pod.Namespace {
 		return false
 	}
 

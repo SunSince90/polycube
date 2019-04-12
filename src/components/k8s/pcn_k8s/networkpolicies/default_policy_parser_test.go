@@ -1206,3 +1206,74 @@ func TestBuildActionKey(t *testing.T) {
 	expectedKey = "nsName:*|podLabels:*"
 	assert.Equal(t, expectedKey, key)
 }
+
+func TestDoesPolicyAffectPod(t *testing.T) {
+	testObj := new(MockPodController)
+	parser := Init(testObj)
+
+	defaultNamespace := "default"
+	policyToCheck := &networking_v1.NetworkPolicy{
+		ObjectMeta: meta_v1.ObjectMeta{
+			Name:      "policy-one",
+			Namespace: defaultNamespace,
+		},
+		Spec: networking_v1.NetworkPolicySpec{
+			PodSelector: meta_v1.LabelSelector{
+				MatchExpressions: []meta_v1.LabelSelectorRequirement{
+					meta_v1.LabelSelectorRequirement{
+						Key: "key-one",
+					},
+				},
+			},
+		},
+	}
+
+	result := parser.DoesPolicyAffectPod(policyToCheck, nil)
+	assert.False(t, result)
+
+	pod := &core_v1.Pod{
+		ObjectMeta: meta_v1.ObjectMeta{
+			Namespace: "not-default",
+		},
+	}
+
+	policyToCheck.Spec.PodSelector = meta_v1.LabelSelector{
+		MatchLabels: map[string]string{},
+	}
+	result = parser.DoesPolicyAffectPod(policyToCheck, pod)
+	assert.False(t, result)
+
+	pod.Namespace = defaultNamespace
+	result = parser.DoesPolicyAffectPod(policyToCheck, pod)
+	assert.True(t, result)
+
+	labels := map[string]string{
+		"app":     "nginx",
+		"version": "3.3",
+	}
+	policyToCheck.Spec.PodSelector = meta_v1.LabelSelector{
+		MatchLabels: labels,
+	}
+	result = parser.DoesPolicyAffectPod(policyToCheck, pod)
+	assert.False(t, result)
+
+	pod.Labels = map[string]string{
+		"exists": "no",
+	}
+	result = parser.DoesPolicyAffectPod(policyToCheck, pod)
+	assert.False(t, result)
+
+	pod.Labels = map[string]string{
+		"app": "nginx",
+	}
+	result = parser.DoesPolicyAffectPod(policyToCheck, pod)
+	assert.False(t, result)
+
+	pod.Labels = labels
+	result = parser.DoesPolicyAffectPod(policyToCheck, pod)
+	assert.True(t, result)
+
+	pod.Labels["beta"] = "true"
+	result = parser.DoesPolicyAffectPod(policyToCheck, pod)
+	assert.True(t, result)
+}
