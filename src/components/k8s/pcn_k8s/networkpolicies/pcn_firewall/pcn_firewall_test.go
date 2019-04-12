@@ -23,6 +23,8 @@ func TestBuildIDs(t *testing.T) {
 		egressID:     prevEgressID,
 		ingressRules: map[string]map[int32]k8sfirewall.ChainRule{},
 		egressRules:  map[string]map[int32]k8sfirewall.ChainRule{},
+		ingressIPs:   map[string]map[int32]string{},
+		egressIPs:    map[string]map[int32]string{},
 	}
 
 	ingressRules := []k8sfirewall.ChainRule{
@@ -34,8 +36,9 @@ func TestBuildIDs(t *testing.T) {
 		k8sfirewall.ChainRule{},
 	}
 	policyName := "policy"
+	targetAddress := "10.10.10.10"
 
-	in, eg := f.buildIDs(policyName, ingressRules, egressRules)
+	in, eg := f.buildIDs(policyName, targetAddress, ingressRules, egressRules)
 	assert.Equal(t, prevIngressID+int32(len(ingressRules)), f.ingressID)
 	assert.Equal(t, prevEgressID+int32(len(egressRules)), f.egressID)
 	assert.Len(t, f.ingressRules[policyName], len(ingressRules))
@@ -44,11 +47,15 @@ func TestBuildIDs(t *testing.T) {
 	i := int32(0)
 	for ; i < int32(len(in)); i++ {
 		assert.Equal(t, prevIngressID+i, in[i].Id)
+		assert.NotEmpty(t, f.ingressRules[policyName][in[i].Id])
+		assert.Equal(t, f.ingressIPs[targetAddress][in[i].Id], policyName)
 	}
 
 	i = int32(0)
 	for ; i < int32(len(eg)); i++ {
 		assert.Equal(t, prevEgressID+i, eg[i].Id)
+		assert.NotEmpty(t, f.egressRules[policyName][eg[i].Id])
+		assert.Equal(t, f.egressIPs[targetAddress][eg[i].Id], policyName)
 	}
 }
 

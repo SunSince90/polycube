@@ -1,16 +1,11 @@
 package types
 
-type FirewallActions struct {
-	Ingress []FirewallAction
-	Egress  []FirewallAction
-}
-
 type FirewallAction struct {
 	PodLabels       map[string]string
 	NamespaceName   string
 	NamespaceLabels map[string]string
 	Key             string
-	Actions         ParsedRules
+	Templates       ParsedRules
 }
 
 type ProtoPort struct {

@@ -24,7 +24,7 @@ type PcnDefaultPolicyParser interface {
 	ParseIPBlock(*networking_v1.IPBlock, string) pcn_types.ParsedRules
 	ParsePorts([]networking_v1.NetworkPolicyPort) []pcn_types.ProtoPort
 	ParseSelectors(*meta_v1.LabelSelector, *meta_v1.LabelSelector, string, string) (pcn_types.ParsedRules, error)
-	BuildActions([]networking_v1.NetworkPolicyIngressRule, []networking_v1.NetworkPolicyEgressRule, string) pcn_types.FirewallActions
+	BuildActions([]networking_v1.NetworkPolicyIngressRule, []networking_v1.NetworkPolicyEgressRule, string) []pcn_types.FirewallAction
 	GetConnectionTemplate(string, string, string, string, []pcn_types.ProtoPort) pcn_types.ParsedRules
 	DoesPolicyAffectPod(*networking_v1.NetworkPolicy, *core_v1.Pod) bool
 
@@ -1180,14 +1180,19 @@ func (d *DefaultPolicyParser) buildActionKey(podLabels, nsLabels map[string]stri
 	if len(nsName) > 0 {
 		key += "nsName:" + nsName
 	} else {
-		key += "nsLabels:"
 
-		implodedLabels := []string{}
-		for k, v := range nsLabels {
-			implodedLabels = append(implodedLabels, k+"="+v)
+		if len(nsLabels) > 0 {
+			key += "nsLabels:"
+
+			implodedLabels := []string{}
+			for k, v := range nsLabels {
+				implodedLabels = append(implodedLabels, k+"="+v)
+			}
+			sort.Strings(implodedLabels)
+			key += strings.Join(implodedLabels, ",")
+		} else {
+			key += "nsName:*"
 		}
-		sort.Strings(implodedLabels)
-		key += strings.Join(implodedLabels, ",")
 	}
 
 	key += "|"
@@ -1214,71 +1219,84 @@ func (d *DefaultPolicyParser) buildActionKey(podLabels, nsLabels map[string]stri
 }
 
 // BuildActions builds actions that are going to be used by firewalls so they know how to react to pods.
-func (d *DefaultPolicyParser) BuildActions(ingress []networking_v1.NetworkPolicyIngressRule, egress []networking_v1.NetworkPolicyEgressRule, currentNamespace string) pcn_types.FirewallActions {
-	fwActions := pcn_types.FirewallActions{}
+func (d *DefaultPolicyParser) BuildActions(ingress []networking_v1.NetworkPolicyIngressRule, egress []networking_v1.NetworkPolicyEgressRule, currentNamespace string) []pcn_types.FirewallAction {
+	fwActions := []pcn_types.FirewallAction{}
 	var waitActions sync.WaitGroup
 	waitActions.Add(2)
+
+	selectorsChecker := func(podSelector, namespaceSelector *meta_v1.LabelSelector) (bool, map[string]string, map[string]string) {
+		//	Matchexpression is not supported
+		if (podSelector != nil && len(podSelector.MatchExpressions) > 0) ||
+			(namespaceSelector != nil && len(namespaceSelector.MatchExpressions) > 0) {
+			return false, nil, nil
+		}
+
+		//	If no selectors, then don't do anything
+		if podSelector == nil && namespaceSelector == nil {
+			return false, nil, nil
+		}
+
+		p := map[string]string{}
+		n := map[string]string{}
+		if podSelector != nil {
+			p = podSelector.MatchLabels
+		}
+
+		if namespaceSelector != nil {
+			n = namespaceSelector.MatchLabels
+		} else {
+			n = nil
+		}
+
+		return true, p, n
+	}
 
 	//-------------------------------------
 	//	Ingress
 	//-------------------------------------
+	ingressActions := []pcn_types.FirewallAction{}
 	go func() {
 		defer waitActions.Done()
 		if ingress == nil {
 			return
 		}
 
-		ingressActions := []pcn_types.FirewallAction{}
 		for _, i := range ingress {
 
 			ports := d.ParsePorts(i.Ports)
 
 			for _, f := range i.From {
 				action := pcn_types.FirewallAction{}
-				ok := true
 
-				//	Matchexpression is not supported
-				if (f.PodSelector != nil && f.PodSelector.MatchExpressions != nil && len(f.PodSelector.MatchExpressions) > 0) ||
-					(f.NamespaceSelector != nil && f.NamespaceSelector.MatchExpressions != nil && len(f.NamespaceSelector.MatchExpressions) > 0) {
-					ok = false
-				}
-
-				//	If no selectors, then don't do anything
-				if f.PodSelector == nil && f.NamespaceSelector == nil {
-					ok = false
-				}
+				ok, pod, ns := selectorsChecker(f.PodSelector, f.NamespaceSelector)
 
 				if ok {
-					if f.PodSelector != nil && f.PodSelector.MatchLabels != nil {
-						action.PodLabels = f.PodSelector.MatchLabels
-					}
 
-					if f.NamespaceSelector != nil && f.NamespaceSelector.MatchLabels != nil {
-						action.NamespaceLabels = f.NamespaceSelector.MatchLabels
-					} else {
+					action.PodLabels = pod
+					action.NamespaceLabels = ns
+					if ns == nil {
+						action.NamespaceLabels = map[string]string{}
 						action.NamespaceName = currentNamespace
 					}
 
-					action.Actions = d.GetConnectionTemplate("ingress", "", "", pcn_types.ActionForward, ports)
+					action.Templates = d.GetConnectionTemplate("ingress", "", "", pcn_types.ActionForward, ports)
 					action.Key = d.buildActionKey(action.PodLabels, action.NamespaceLabels, action.NamespaceName)
 					ingressActions = append(ingressActions, action)
 				}
 			}
 		}
-
-		fwActions.Ingress = ingressActions
 	}()
 
 	//-------------------------------------
 	//	Egress
 	//-------------------------------------
+	egressActions := []pcn_types.FirewallAction{}
 	go func() {
 		defer waitActions.Done()
 		if egress == nil {
 			return
 		}
 
-		egressActions := []pcn_types.FirewallAction{}
 		for _, e := range egress {
 
 			ports := d.ParsePorts(e.Ports)
@@ -1286,38 +1304,29 @@ func (d *DefaultPolicyParser) BuildActions(ingress []networking_v1.NetworkPolicy
 			for _, t := range e.To {
 
 				action := pcn_types.FirewallAction{}
-				ok := true
-
-				if (t.PodSelector.MatchExpressions != nil && len(t.PodSelector.MatchExpressions) > 0) ||
-					(t.NamespaceSelector.MatchExpressions != nil && len(t.NamespaceSelector.MatchExpressions) > 0) {
-					ok = false
-				}
-
-				//	If no selectors, then don't do anything
-				if t.PodSelector == nil && t.NamespaceSelector == nil {
-					ok = false
-				}
+				ok, pod, ns := selectorsChecker(t.PodSelector, t.NamespaceSelector)
 
 				if ok {
-					if t.PodSelector != nil && t.PodSelector.MatchLabels != nil {
-						action.PodLabels = t.PodSelector.MatchLabels
+
+					action.PodLabels = pod
+					action.NamespaceLabels = ns
+					if ns == nil {
+						action.NamespaceLabels = map[string]string{}
+						action.NamespaceName = currentNamespace
 					}
 
-					if t.NamespaceSelector != nil && t.NamespaceSelector.MatchLabels != nil {
-						action.NamespaceLabels = t.NamespaceSelector.MatchLabels
-					}
-
-					action.Actions = d.GetConnectionTemplate("egress", "", "", pcn_types.ActionForward, ports)
+					action.Templates = d.GetConnectionTemplate("egress", "", "", pcn_types.ActionForward, ports)
 					action.Key = d.buildActionKey(action.PodLabels, action.NamespaceLabels, action.NamespaceName)
 					egressActions = append(egressActions, action)
 				}
 			}
 		}
-		fwActions.Egress = egressActions
 	}()
 
 	waitActions.Wait()
 
+	fwActions = append(fwActions, ingressActions...)
+	fwActions = append(fwActions, egressActions...)
 	return fwActions
 }
 

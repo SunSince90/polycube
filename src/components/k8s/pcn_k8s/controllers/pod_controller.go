@@ -477,7 +477,7 @@ func (p *PcnPodController) podMeetsCriteria(pod *core_v1.Pod, podSpec pcn_types.
 	//	The namespace
 	//-------------------------------------
 	if len(nsSpec.Name) > 0 {
-		if pod.Namespace != nsSpec.Name {
+		if nsSpec.Name != "*" && pod.Namespace != nsSpec.Name {
 			return false
 		}
 	} else {
