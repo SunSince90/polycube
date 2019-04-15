@@ -413,6 +413,8 @@ func connectFirewall(name, containerPort, switchPort string) error {
 		log.Errorln("An error occurred while trying to create ports for firewall:", name, containerPort, err, response)
 		return err
 	}
+
+	return nil
 }
 
 func cmdDel(args *skel.CmdArgs) error {
