@@ -35,16 +35,14 @@ type PcnDefaultPolicyParser interface {
 type DefaultPolicyParser struct {
 	podController      pcn_controllers.PodController
 	supportedProtocols string
-	node               string
 	log                *log.Logger
 }
 
 // newDefaultPolicyParser starts a new parser
-func newDefaultPolicyParser(podController pcn_controllers.PodController, nodeName string) *DefaultPolicyParser {
+func newDefaultPolicyParser(podController pcn_controllers.PodController) *DefaultPolicyParser {
 	return &DefaultPolicyParser{
 		podController:      podController,
 		supportedProtocols: "TCP,UDP",
-		node:               nodeName,
 		log:                log.New(),
 	}
 }
