@@ -19,6 +19,7 @@ type PcnFirewall interface {
 	Unlink(*core_v1.Pod, UnlinkOperation) (bool, int)
 	LinkedPods() map[k8s_types.UID]string
 	IsPolicyEnforced(string) bool
+	Selector() (map[string]string, string)
 	Name() string
 	EnforcePolicy(string, string, []k8sfirewall.ChainRule, []k8sfirewall.ChainRule, []pcn_types.FirewallAction)
 	CeasePolicy(string)
@@ -63,6 +64,8 @@ type FirewallManager struct {
 	policyTypes map[string]string
 	// policyActions contains a map of actions to be taken when a pod event occurs
 	policyActions map[string]*subscriptions
+	// selector defines what kind of pods this firewall is monitoring
+	selector selector
 }
 
 // ruleIDs acts as a cache for knowing the rule IDs to which an IP is linked to,
@@ -79,8 +82,14 @@ type subscriptions struct {
 	unsubscriptors []func()
 }
 
+// selector is the
+type selector struct {
+	namespace string
+	labels    map[string]string
+}
+
 // StartFirewall will start a new firewall manager
-func StartFirewall(API k8sfirewall.FirewallAPI, podController pcn_controllers.PodController, name string) PcnFirewall {
+func StartFirewall(API k8sfirewall.FirewallAPI, podController pcn_controllers.PodController, name, namespace string, labels map[string]string) PcnFirewall {
 	//	This method is unexported by design: *only* the network policy manager is supposed to create firewall managers.
 	l := log.NewEntry(log.New())
 	l.WithFields(log.Fields{"by": FWM, "method": "StartFirewall()"})
@@ -96,6 +105,11 @@ func StartFirewall(API k8sfirewall.FirewallAPI, podController pcn_controllers.Po
 		//	Logger and name
 		log:  log.New(),
 		name: "FirewallManager-" + name,
+		//	Selector
+		selector: selector{
+			namespace: namespace,
+			labels:    labels,
+		},
 		//	The counts
 		ingressPoliciesCount: 0,
 		egressPoliciesCount:  0,
@@ -973,6 +987,11 @@ func (d *FirewallManager) IsPolicyEnforced(name string) bool {
 	_, eexists := d.egressRules[name]
 
 	return iexists || eexists
+}
+
+// Selector returns the namespace and labels of the pods monitored by this firewall manager
+func (d *FirewallManager) Selector() (map[string]string, string) {
+	return d.selector.labels, d.selector.namespace
 }
 
 // isFirewallOk checks if the firewall is ok. Used to check if firewall exists and is healthy
