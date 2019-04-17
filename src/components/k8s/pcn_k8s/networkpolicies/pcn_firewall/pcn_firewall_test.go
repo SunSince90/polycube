@@ -1,6 +1,7 @@
 package pcnfirewall
 
 import (
+	"fmt"
 	"testing"
 
 	k8s_types "k8s.io/apimachinery/pkg/types"
@@ -18,13 +19,14 @@ import (
 func TestBuildIDs(t *testing.T) {
 	prevIngressID := int32(5)
 	prevEgressID := int32(3)
-	f := &DeployedFirewall{
+	f := &FirewallManager{
 		ingressID:    prevIngressID,
 		egressID:     prevEgressID,
 		ingressRules: map[string]map[int32]k8sfirewall.ChainRule{},
 		egressRules:  map[string]map[int32]k8sfirewall.ChainRule{},
 		ingressIPs:   map[string]map[int32]string{},
 		egressIPs:    map[string]map[int32]string{},
+		log:          log.New(),
 	}
 
 	ingressRules := []k8sfirewall.ChainRule{
@@ -62,7 +64,7 @@ func TestBuildIDs(t *testing.T) {
 func TestIncreaseCount(t *testing.T) {
 	prevIngressCount := 0
 	prevEgressCount := 0
-	f := &DeployedFirewall{
+	f := &FirewallManager{
 		ingressPoliciesCount: prevIngressCount,
 		egressPoliciesCount:  prevEgressCount,
 		ingressDefaultAction: pcn_types.ActionForward,
@@ -101,7 +103,7 @@ func TestIncreaseCount(t *testing.T) {
 func TestDecreseCount(t *testing.T) {
 	prevIngressCount := 2
 	prevEgressCount := 2
-	f := &DeployedFirewall{
+	f := &FirewallManager{
 		ingressPoliciesCount: prevIngressCount,
 		egressPoliciesCount:  prevEgressCount,
 		ingressDefaultAction: pcn_types.ActionDrop,
@@ -138,7 +140,7 @@ func TestDecreseCount(t *testing.T) {
 }
 
 func TestIsPolicyEnforced(t *testing.T) {
-	f := &DeployedFirewall{
+	f := &FirewallManager{
 		ingressRules: map[string]map[int32]k8sfirewall.ChainRule{
 			"policy":              map[int32]k8sfirewall.ChainRule{},
 			"policy-only-ingress": map[int32]k8sfirewall.ChainRule{},
@@ -162,49 +164,77 @@ func TestIsPolicyEnforced(t *testing.T) {
 	assert.True(t, result)
 }
 
-func TestLink(t *testing.T) {
-	f := &DeployedFirewall{
+func TestReactToTerminated(t *testing.T) {
+	policyOne := "policy-one"
+	policyTwo := "policy-two"
+	f := &FirewallManager{
 		fwAPI:      MockAPI,
 		log:        log.New(),
 		linkedPods: map[k8s_types.UID]string{},
 		ingressRules: map[string]map[int32]k8sfirewall.ChainRule{
-			"policy-one": map[int32]k8sfirewall.ChainRule{
+			policyOne: map[int32]k8sfirewall.ChainRule{
 				2: k8sfirewall.ChainRule{
-					Id: 2,
-					// ...
+					Id:  2,
+					Src: "10.10.10.10",
 				},
 				4: k8sfirewall.ChainRule{
-					Id: 4,
-					// ...
+					Id:  4,
+					Src: "10.10.10.10",
+				},
+				8: k8sfirewall.ChainRule{
+					Id:  8,
+					Src: "11.11.11.11",
 				},
 			},
-			"policy-two": map[int32]k8sfirewall.ChainRule{
+			policyTwo: map[int32]k8sfirewall.ChainRule{
 				5: k8sfirewall.ChainRule{
-					Id: 5,
-					// ...
+					Id:  5,
+					Src: "10.10.10.10",
 				},
 				6: k8sfirewall.ChainRule{
-					Id: 6,
-					// ...
+					Id:  6,
+					Src: "11.11.11.11",
 				},
 				7: k8sfirewall.ChainRule{
-					Id: 7,
-					// ...
+					Id:  7,
+					Src: "12.12.12.12",
 				},
 			},
 		},
+		ingressIPs: map[string]map[int32]string{
+			"10.10.10.10": map[int32]string{
+				int32(2): policyOne,
+				int32(4): policyOne,
+				int32(5): policyTwo,
+			},
+			"11.11.11.11": map[int32]string{
+				int32(8): policyOne,
+				int32(6): policyTwo,
+			},
+			"12.12.12.12": map[int32]string{
+				int32(7): policyTwo,
+			},
+		},
 		egressRules: map[string]map[int32]k8sfirewall.ChainRule{
-			"policy-one": map[int32]k8sfirewall.ChainRule{
+			policyOne: map[int32]k8sfirewall.ChainRule{
 				3: k8sfirewall.ChainRule{
-					Id: 3,
-					// ...
+					Id:  3,
+					Dst: "10.10.10.10",
 				},
 			},
-			"policy-two": map[int32]k8sfirewall.ChainRule{
+			policyTwo: map[int32]k8sfirewall.ChainRule{
 				1: k8sfirewall.ChainRule{
-					Id: 1,
-					// ...
+					Id:  1,
+					Dst: "11.11.11.11",
 				},
+			},
+		},
+		egressIPs: map[string]map[int32]string{
+			"10.10.10.10": map[int32]string{
+				int32(3): policyOne,
+			},
+			"11.11.11.11": map[int32]string{
+				int32(1): policyTwo,
 			},
 		},
 	}
@@ -216,14 +246,209 @@ func TestLink(t *testing.T) {
 			PodIP: "10.10.10.10",
 		},
 	}
-	MockAPI.On("ReadFirewallUuidByID", nil, "fw-"+pod.Status.PodIP).Return("", nil, nil)
 
-	result := f.Link(pod)
-	assert.True(t, result)
+	f.reactToPod(pcn_types.Delete, pod, "")
 
-	result = f.Link(pod)
-	assert.False(t, result)
+	assert.Empty(t, f.ingressIPs[pod.Status.PodIP])
+	assert.Empty(t, f.egressIPs[pod.Status.PodIP])
 
-	//	Comment the second part to test the rest of this function.
-	//	Did not test it because it just makes use of other function which I didn't want to mock. :P
+	assert.Empty(t, f.ingressRules[policyOne][int32(2)])
+	assert.Empty(t, f.ingressRules[policyOne][int32(4)])
+	assert.Empty(t, f.ingressRules[policyTwo][int32(5)])
+	assert.NotZero(t, len(f.ingressRules[policyOne]))
+	assert.NotZero(t, len(f.ingressRules[policyTwo]))
+
+	assert.Empty(t, f.egressRules[policyOne][int32(3)])
+	assert.Zero(t, len(f.egressRules[policyOne]))
+	assert.NotZero(t, len(f.egressRules[policyTwo]))
+
+}
+
+func TestDeleteAllPolicyRules(t *testing.T) {
+	policyOne := "policy-one"
+	policyTwo := "policy-two"
+	f := &FirewallManager{
+		fwAPI:      MockAPI,
+		log:        log.New(),
+		linkedPods: map[k8s_types.UID]string{},
+		ingressRules: map[string]map[int32]k8sfirewall.ChainRule{
+			policyOne: map[int32]k8sfirewall.ChainRule{
+				2: k8sfirewall.ChainRule{
+					Id:  2,
+					Src: "10.10.10.10",
+				},
+				4: k8sfirewall.ChainRule{
+					Id:  4,
+					Src: "10.10.10.10",
+				},
+				8: k8sfirewall.ChainRule{
+					Id:  8,
+					Src: "11.11.11.11",
+				},
+			},
+			policyTwo: map[int32]k8sfirewall.ChainRule{
+				5: k8sfirewall.ChainRule{
+					Id:  5,
+					Src: "10.10.10.10",
+				},
+				6: k8sfirewall.ChainRule{
+					Id:  6,
+					Src: "11.11.11.11",
+				},
+				7: k8sfirewall.ChainRule{
+					Id:  7,
+					Src: "12.12.12.12",
+				},
+			},
+		},
+		ingressIPs: map[string]map[int32]string{
+			"10.10.10.10": map[int32]string{
+				int32(2): policyOne,
+				int32(4): policyOne,
+				int32(5): policyTwo,
+			},
+			"11.11.11.11": map[int32]string{
+				int32(8): policyOne,
+				int32(6): policyTwo,
+			},
+			"12.12.12.12": map[int32]string{
+				int32(7): policyTwo,
+			},
+		},
+		egressRules: map[string]map[int32]k8sfirewall.ChainRule{
+			policyOne: map[int32]k8sfirewall.ChainRule{
+				3: k8sfirewall.ChainRule{
+					Id:  3,
+					Dst: "10.10.10.10",
+				},
+			},
+			policyTwo: map[int32]k8sfirewall.ChainRule{
+				1: k8sfirewall.ChainRule{
+					Id:  1,
+					Dst: "11.11.11.11",
+				},
+			},
+		},
+		egressIPs: map[string]map[int32]string{
+			"10.10.10.10": map[int32]string{
+				int32(3): policyOne,
+			},
+			"11.11.11.11": map[int32]string{
+				int32(1): policyTwo,
+			},
+		},
+	}
+
+	f.deleteAllPolicyRules(policyOne)
+	assert.Empty(t, f.ingressRules[policyOne])
+	assert.NotZero(t, len(f.ingressRules))
+	assert.Empty(t, f.egressRules[policyOne])
+	assert.NotZero(t, len(f.egressRules))
+
+	assert.NotEmpty(t, f.ingressIPs["10.10.10.10"])
+	assert.NotEmpty(t, f.ingressIPs["11.11.11.11"])
+	assert.Empty(t, f.ingressIPs["10.10.10.10"][2])
+	assert.Empty(t, f.ingressIPs["10.10.10.10"][4])
+	assert.Empty(t, f.ingressIPs["11.11.11.11"][8])
+
+	assert.Empty(t, f.egressIPs["10.10.10.10"])
+	_, exists := f.egressIPs["10.10.10.10"]
+	assert.False(t, exists)
+}
+
+func TestDeleteAllPolicyTemplates(t *testing.T) {
+	policyOne := "policy-one"
+	policyTwo := "policy-two"
+	redis := "nsName:production|podLabels:app=redis,version=2.0"
+	apache := "nsName:production|podLabels:app=apache,version=2.5"
+	f := &FirewallManager{
+		fwAPI:      MockAPI,
+		log:        log.New(),
+		linkedPods: map[k8s_types.UID]string{},
+		policyActions: map[string]*subscriptions{
+			redis: &subscriptions{
+				actions: map[string]pcn_types.ParsedRules{
+					policyOne: pcn_types.ParsedRules{},
+				},
+				unsubscriptors: []func(){
+					func() {
+						fmt.Println("redis update unsubscriptor")
+					},
+					func() {
+						fmt.Println("redis delete unsubscriptor")
+					},
+				},
+			},
+			apache: &subscriptions{
+				actions: map[string]pcn_types.ParsedRules{
+					policyOne: pcn_types.ParsedRules{},
+					policyTwo: pcn_types.ParsedRules{},
+				},
+				unsubscriptors: []func(){
+					func() {
+						fmt.Println("apache update unsubscriptor")
+					},
+					func() {
+						fmt.Println("apache update unsubscriptor")
+					},
+				},
+			},
+		},
+	}
+
+	f.deleteAllPolicyTemplates(policyOne)
+
+	assert.NotEmpty(t, f.policyActions[apache])
+	assert.NotZero(t, len(f.policyActions[apache].actions))
+	_, exists := f.policyActions[apache].actions[policyOne]
+	assert.False(t, exists)
+	assert.Len(t, f.policyActions[apache].unsubscriptors, 2)
+
+	_, exists = f.policyActions[redis]
+	assert.False(t, exists)
+}
+
+func TestDestroy(t *testing.T) {
+	policyOne := "policy-one"
+	policyTwo := "policy-two"
+	redis := "nsName:production|podLabels:app=redis,version=2.0"
+	apache := "nsName:production|podLabels:app=apache,version=2.5"
+	f := &FirewallManager{
+		fwAPI:      MockAPI,
+		log:        log.New(),
+		linkedPods: map[k8s_types.UID]string{},
+		policyActions: map[string]*subscriptions{
+			redis: &subscriptions{
+				actions: map[string]pcn_types.ParsedRules{
+					policyOne: pcn_types.ParsedRules{},
+				},
+				unsubscriptors: []func(){
+					func() {
+						fmt.Println("redis update unsubscriptor")
+					},
+					func() {
+						fmt.Println("redis delete unsubscriptor")
+					},
+				},
+			},
+			apache: &subscriptions{
+				actions: map[string]pcn_types.ParsedRules{
+					policyOne: pcn_types.ParsedRules{},
+					policyTwo: pcn_types.ParsedRules{},
+				},
+				unsubscriptors: []func(){
+					func() {
+						fmt.Println("apache update unsubscriptor")
+					},
+					func() {
+						fmt.Println("apache update unsubscriptor")
+					},
+				},
+			},
+		},
+	}
+
+	f.Destroy()
+
+	assert.Empty(t, f.policyActions)
 }
