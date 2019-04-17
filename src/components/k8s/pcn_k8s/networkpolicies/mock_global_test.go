@@ -141,25 +141,16 @@ func (m *MockFirewallManager) EnforcePolicy(p string, t string, i []k8sfirewall.
 	m.Called(p, i, e, a)
 }
 func (m *MockFirewallManager) CeasePolicy(c string) {
-	//args := m.Called(c)
-	//return args.Get(0).(error), args.Get(1).(error)
+	m.Called(c)
+}
+func (m *MockFirewallManager) Selector() (map[string]string, string) {
+	args := m.Called()
+	return args.Get(0).(map[string]string), args.Get(1).(string)
 }
 func (m *MockFirewallManager) Name() string {
 	args := m.Called()
 	return args.Get(0).(string)
 }
-func (m *MockFirewallManager) ForPod() k8s_types.UID {
-	args := m.Called()
-	return args.Get(0).(k8s_types.UID)
-}
-func (m *MockFirewallManager) RemoveRules(p string, r []k8sfirewall.ChainRule) []k8sfirewall.ChainRule {
-	args := m.Called(p, r)
-	return args.Get(0).([]k8sfirewall.ChainRule)
-}
-func (m *MockFirewallManager) RemoveIPReferences(p string, t string) {
-	//args := m.Called(p, t)
-}
-func (m *MockFirewallManager) Destroy() error {
-	args := m.Called()
-	return args.Get(0).(error)
+func (m *MockFirewallManager) Destroy() {
+	m.Called()
 }

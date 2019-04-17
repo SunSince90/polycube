@@ -1,3 +1,5 @@
+// Package networkpolicies contains logic for parsing policies.
+// It parses policies from kubernetes and polycube and gets back rules in a format that the firewall can understand.
 package networkpolicies
 
 const (
