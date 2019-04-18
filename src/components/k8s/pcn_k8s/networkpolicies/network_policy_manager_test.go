@@ -38,8 +38,8 @@ func TestImplode(t *testing.T) {
 }
 
 func TestGetOrCreateFirewall(t *testing.T) {
-	oldFunc := StartFirewall
-	defer func() { StartFirewall = oldFunc }()
+	oldFunc := startFirewall
+	defer func() { startFirewall = oldFunc }()
 	notLinkedPod := &core_v1.Pod{
 		ObjectMeta: meta_v1.ObjectMeta{
 			UID: "POD-NOTLINKED-UID-100",
@@ -77,7 +77,7 @@ func TestGetOrCreateFirewall(t *testing.T) {
 			PodIP: "120.120.120.120",
 		},
 	}
-	StartFirewall = func(API k8sfirewall.FirewallAPI, podController pcn_controllers.PodController, name string) pcn_firewall.PcnFirewall {
+	startFirewall = func(API k8sfirewall.FirewallAPI, podController pcn_controllers.PodController, name, namespace string, labels map[string]string) pcn_firewall.PcnFirewall {
 		obj := new(MockFirewallManager)
 		obj.On("Unlink", updatedLinkedPod, pcn_firewall.CleanFirewall).Return(true, 1)
 		return obj
@@ -85,7 +85,7 @@ func TestGetOrCreateFirewall(t *testing.T) {
 
 	manager := &NetworkPolicyManager{
 		localFirewalls: map[string]pcn_firewall.PcnFirewall{
-			"linked-namespace|linked=yes": StartFirewall(nil, nil, "linked-namespace|linked=yes"),
+			"linked-namespace|linked=yes": startFirewall(nil, nil, "linked-namespace|linked=yes", "linked-namespace", map[string]string{"linked": "yes"}),
 		},
 		flaggedForDeletion: map[string]*time.Timer{},
 		linkedPods: map[k8s_types.UID]string{

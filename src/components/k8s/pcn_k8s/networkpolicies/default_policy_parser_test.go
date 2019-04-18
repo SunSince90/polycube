@@ -17,7 +17,7 @@ import (
 )
 
 func Init(podController pcn_controllers.PodController) *DefaultPolicyParser {
-	manager := newDefaultPolicyParser(podController, "node")
+	manager := newDefaultPolicyParser(podController)
 	return manager
 }
 
