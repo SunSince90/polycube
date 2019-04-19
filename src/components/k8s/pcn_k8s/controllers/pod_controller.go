@@ -1,13 +1,13 @@
 package controllers
 
 import (
-	//	TODO-ON-MERGE: change the path to polycube
 	"errors"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
 
+	//	TODO-ON-MERGE: change the path to polycube
 	pcn_types "github.com/SunSince90/polycube/src/components/k8s/pcn_k8s/types"
 
 	log "github.com/sirupsen/logrus"
@@ -18,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
+	typed_core_v1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/tools/cache"
 	workqueue "k8s.io/client-go/util/workqueue"
 )
@@ -32,7 +33,7 @@ type PodController interface {
 type PcnPodController struct {
 	nodeName     string
 	nsController NamespaceController
-	clientset    *kubernetes.Clientset
+	clientset    kubernetes.Interface
 	queue        workqueue.RateLimitingInterface
 	informer     cache.SharedIndexInformer
 	startedOn    time.Time
@@ -42,23 +43,15 @@ type PcnPodController struct {
 	logBy        string
 	pods         map[string]*pcn_types.Pod
 	lock         sync.Mutex
+	nsInterface  typed_core_v1.NamespaceInterface
 }
 
-func NewPodController(nodeName string, clientset *kubernetes.Clientset, nsController NamespaceController) PodController {
+func NewPodController(nodeName string, clientset kubernetes.Interface, nsController NamespaceController) PodController {
+	l := log.NewEntry(log.New())
+	l.WithFields(log.Fields{"by": "Pod Controller", "method": "NewPodController()"})
 
-	//	Init here
-	//	TODO: make maxRetries settable on parameters?
-	logBy := "PcnPodController"
+	logBy := "PodController"
 	maxRetries := 5
-
-	//	Let them know we're starting
-	/*log.SetLevel(log.DebugLevel)
-	var l = log.WithFields(log.Fields{
-		"by":     logBy,
-		"method": "NewPodController()",
-	})*/
-
-	//l.Infof("Pod Controller called on node %s", nodeName)
 
 	//------------------------------------------------
 	//	Set up the Pod Controller
@@ -91,61 +84,30 @@ func NewPodController(nodeName string, clientset *kubernetes.Clientset, nsContro
 	//	Whenever something happens to network policies, the event is routed by this event handler and routed to the queue. It'll know what to do.
 	informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
-			key, err := cache.MetaNamespaceKeyFunc(obj)
-			/*log.WithFields(log.Fields{
-				"by":     logBy,
-				"method": "AddFunc()",
-			}).Infof("Something has been added! Workspaces is %s", key)*/
-
-			//	Set up the event
-			event := pcn_types.Event{
-				Key:       key,
-				Type:      pcn_types.New,
-				Namespace: strings.Split(key, "/")[0],
+			event, err := buildEvent(obj, pcn_types.New)
+			if err != nil {
+				utilruntime.HandleError(err)
+				return
 			}
-
-			//	Add this event to the queue
-			if err == nil {
-				queue.Add(event)
-			}
+			queue.Add(event)
 		},
 		UpdateFunc: func(old, new interface{}) {
-			/*log.WithFields(log.Fields{
-				"by":     logBy,
-				"method": "UpdateFunc()",
-			}).Info("Something has been updated!")*/
-
-			key, err := cache.MetaNamespaceKeyFunc(new)
-
-			//	Set up the event
-			event := pcn_types.Event{
-				Key:       key,
-				Type:      pcn_types.Update,
-				Namespace: strings.Split(key, "/")[0],
+			event, err := buildEvent(new, pcn_types.Update)
+			if err != nil {
+				utilruntime.HandleError(err)
+				return
 			}
-			//	Add this event to the queue
-			if err == nil {
-				queue.Add(event)
-			}
+
+			queue.Add(event)
 		},
 		DeleteFunc: func(obj interface{}) {
-			/*log.WithFields(log.Fields{
-				"by":     logBy,
-				"method": "DeleteFunc()",
-			}).Info("Something has been deleted!")*/
-
-			key, err := cache.MetaNamespaceKeyFunc(obj)
-
-			//	Set up the event
-			event := pcn_types.Event{
-				Key:       key,
-				Type:      pcn_types.Delete,
-				Namespace: strings.Split(key, "/")[0],
+			event, err := buildEvent(obj, pcn_types.Delete)
+			if err != nil {
+				utilruntime.HandleError(err)
+				return
 			}
-			//	Add this event to the queue
-			if err == nil {
-				queue.Add(event)
-			}
+
+			queue.Add(event)
 		},
 	})
 
@@ -157,6 +119,13 @@ func NewPodController(nodeName string, clientset *kubernetes.Clientset, nsContro
 		new:    NewEventDispatcher("new-pod-event-dispatcher"),
 		update: NewEventDispatcher("update-pod-event-dispatcher"),
 		delete: NewEventDispatcher("delete-pod-event-dispatcher"),
+	}
+
+	//	If namespace controller is nil, we're going to use it like this.
+	var nsInterface typed_core_v1.NamespaceInterface
+	if nsController == nil {
+		l.Infoln("No namespace controller provided. Going to use a light implementation.")
+		nsInterface = clientset.CoreV1().Namespaces()
 	}
 
 	//	Everything set up, return the controller
@@ -171,17 +140,14 @@ func NewPodController(nodeName string, clientset *kubernetes.Clientset, nsContro
 		maxRetries:   maxRetries,
 		stopCh:       make(chan struct{}),
 		pods:         map[string]*pcn_types.Pod{},
+		nsInterface:  nsInterface,
 	}
 }
 
+// Run starts the pod controller
 func (p *PcnPodController) Run() {
-
-	var l = log.WithFields(log.Fields{
-		"by":     p.logBy,
-		"method": "Start()",
-	})
-
-	//l.Info("Pod Controller starting")
+	l := log.NewEntry(log.New())
+	l.WithFields(log.Fields{"by": p.logBy, "method": "Run()"})
 
 	//	Don't let panics crash the process
 	defer utilruntime.HandleCrash()
@@ -198,98 +164,104 @@ func (p *PcnPodController) Run() {
 		return
 	}
 
-	l.Infoln("Pod controller started.")
+	l.Infoln("Started...")
 
 	//	Work *until* something bad happens. If that's the case, wait one second and then re-work again.
 	//	Well, except when someone tells us to stop... in that case, just stop, man
 	wait.Until(p.work, time.Second, p.stopCh)
-	//l.Infoln("Run method exiting...")
 }
 
+// work gets the item from the queue and attempts to process it
 func (p *PcnPodController) work() {
-
-	var stop = false
-	var l = log.WithFields(log.Fields{
-		"by":     p.logBy,
-		"method": "work()",
-	})
-
-	//l.Info("Starting method work...")
+	l := log.NewEntry(log.New())
+	l.WithFields(log.Fields{"by": p.logBy, "method": "work()"})
+	stop := false
 
 	for !stop {
-
-		//l.Infof("Ok, I'm going to get a new item from the queue...")
 
 		//	Get the item's key from the queue
 		_event, quit := p.queue.Get()
 
 		if quit {
-			//l.Infoln("Quit requested... worker going to exit.")
+			l.Infoln("Quit requested... worker going to exit.")
 			return
 		}
 
-		event := _event.(pcn_types.Event)
+		event, ok := _event.(pcn_types.Event)
+		if ok {
+			err := p.process(event)
 
-		//l.Infof("Just got the item: its key is %s on namespace %s", event.Key, event.Namespace)
-
-		err := p.process(event)
-
-		//	No errors?
-		if err == nil {
-			//	Then reset the ratelimit counters
-			p.queue.Forget(_event)
-			//l.Infof("Item with key %s has been forgotten from the queue", event.Key)
-		} else if p.queue.NumRequeues(_event) < p.maxRetries {
-			//	Tried less than the maximum retries?
-			l.Warningf("Error processing item with key %s (will retry): %v", event.Key, err)
-			p.queue.AddRateLimited(_event)
+			//	No errors?
+			if err == nil {
+				//	Then reset the ratelimit counters
+				p.queue.Forget(_event)
+			} else if p.queue.NumRequeues(_event) < p.maxRetries {
+				//	Tried less than the maximum retries?
+				l.Warningf("Error processing item with key %s (will retry): %v", event.Key, err)
+				p.queue.AddRateLimited(_event)
+			} else {
+				//	Too many retries?
+				l.Errorf("Error processing %s (giving up): %v", event.Key, err)
+				p.queue.Forget(_event)
+				utilruntime.HandleError(err)
+			}
 		} else {
-			//	Too many retries?
-			l.Errorf("Error processing %s (giving up): %v", event.Key, err)
+			//	Don't process something which is not valid.
 			p.queue.Forget(_event)
-			utilruntime.HandleError(err)
+			utilruntime.HandleError(fmt.Errorf("Error when trying to parse event %#v from the queue", _event))
 		}
 
 		stop = quit
 	}
 }
 
+// process will process the event and dispatch the pod
 func (p *PcnPodController) process(event pcn_types.Event) error {
+	l := log.NewEntry(log.New())
+	l.WithFields(log.Fields{"by": p.logBy, "method": "process()"})
 
-	var l = log.WithFields(log.Fields{
-		"by":     p.logBy,
-		"method": "processPolicy()",
-	})
 	var pod *core_v1.Pod
-
 	defer p.queue.Done(event)
 
-	//l.Infof("Starting to process pod")
-
-	//	Get the policy by querying the key that kubernetes has assigned to this in its cache
-	_pod, exists, err := p.informer.GetIndexer().GetByKey(event.Key)
+	//	Get the pod by querying the key that kubernetes has assigned to this in its cache
+	_pod, _, err := p.informer.GetIndexer().GetByKey(event.Key)
 
 	//	Errors?
 	if err != nil {
 		l.Errorf("An error occurred: cannot find cache element with key %s from store %v", event.Key, err)
-
-		//	TODO: check this
 		return fmt.Errorf("An error occurred: cannot find cache element with key %s from ", event.Key)
 	}
 
 	//	Does not exist?
-	if !exists {
+	/*if !exists {
 		//l.Infof("Object with key %s does not exist. Going to trigger a onDelete function", event.Key)
 		splitted := strings.Split(event.Key, "/")
 		tempPod, ok := p.pods[splitted[1]]
 		if ok {
 			pod = tempPod.Pod
 		}
-	}
+	}*/
 
 	//	Get the pod
-	if _pod != nil {
+	/*if _pod != nil {
 		pod = _pod.(*core_v1.Pod)
+	}*/
+
+	//	Get the pod or try to recover it.
+	if pod, ok := _pod.(*core_v1.Pod); !ok {
+		tombstone, ok := _pod.(cache.DeletedFinalStateUnknown)
+		if !ok {
+			l.Errorln("error decoding object, invalid type")
+			utilruntime.HandleError(fmt.Errorf("error decoding object, invalid type"))
+			return fmt.Errorf("error decoding object, invalid type")
+		}
+		pod, ok = tombstone.Obj.(*core_v1.Pod)
+		if !ok {
+			l.Errorln("error decoding object tombstone, invalid type")
+			utilruntime.HandleError(fmt.Errorf("error decoding object tombstone, invalid type"))
+			return fmt.Errorf("error decoding object tombstone, invalid type")
+		}
+		l.Infof("Recovered deleted object '%s' from tombstone", pod.GetName())
 	}
 
 	//-------------------------------------
@@ -299,21 +271,17 @@ func (p *PcnPodController) process(event pcn_types.Event) error {
 	switch event.Type {
 
 	case pcn_types.New:
-		p.addNewPod(pod)
 		p.dispatchers.new.Dispatch(pod)
 	case pcn_types.Update:
-		//p.removePod(pod)
-		p.addNewPod(pod)
 		p.dispatchers.update.Dispatch(pod)
 	case pcn_types.Delete:
 		p.dispatchers.delete.Dispatch(pod)
-		p.removePod(pod)
 	}
 
 	return nil
 }
 
-func (p *PcnPodController) addNewPod(pod *core_v1.Pod) {
+/*func (p *PcnPodController) addNewPod(pod *core_v1.Pod) {
 
 	p.lock.Lock()
 	defer p.lock.Unlock()
@@ -325,9 +293,9 @@ func (p *PcnPodController) addNewPod(pod *core_v1.Pod) {
 
 	//	Add it in the main map
 	p.pods[pod.Name] = podContainer
-}
+}*/
 
-func (p *PcnPodController) removePod(pod *core_v1.Pod) {
+/*func (p *PcnPodController) removePod(pod *core_v1.Pod) {
 	p.lock.Lock()
 	defer p.lock.Unlock()
 
@@ -335,24 +303,12 @@ func (p *PcnPodController) removePod(pod *core_v1.Pod) {
 	if exists {
 		delete(p.pods, pod.Name)
 	}
-}
+}*/
 
-func (p *PcnPodController) implodeLabels(labels map[string]string) string {
-	implodedLabels := ""
-
-	for k, v := range labels {
-		implodedLabels += k + "=" + v + ","
-	}
-
-	return strings.Trim(implodedLabels, ",")
-}
-
+// Stop will stop the pod controller
 func (p *PcnPodController) Stop() {
-
-	log.WithFields(log.Fields{
-		"by":     p.logBy,
-		"method": "Stop())",
-	}).Info("Namespace controller going to shutdown!")
+	l := log.NewEntry(log.New())
+	l.WithFields(log.Fields{"by": p.logBy, "method": "Stop()"})
 
 	//	Make them know that exit has been requested
 	close(p.stopCh)
@@ -366,8 +322,8 @@ func (p *PcnPodController) Stop() {
 	p.dispatchers.delete.CleanUp()
 }
 
-/*Subscribe executes the function consumer when the event event is triggered. It returns an error if the event type does not exist.
-It returns a function to call when you want to stop tracking that event.*/
+// Subscribe executes the function consumer when the event event is triggered. It returns an error if the event type does not exist.
+// It returns a function to call when you want to stop tracking that event.*/
 func (p *PcnPodController) Subscribe(event pcn_types.EventType, podspec pcn_types.ObjectQuery, namespace pcn_types.ObjectQuery, phase core_v1.PodPhase, consumer func(*core_v1.Pod)) (func(), error) {
 
 	//	Prepare the function to be executed
@@ -432,6 +388,7 @@ func (p *PcnPodController) Subscribe(event pcn_types.EventType, podspec pcn_type
 	}
 }
 
+// podMeetsCriteria is called when before dispatching the event to verify if the pod should be dispatched or not
 func (p *PcnPodController) podMeetsCriteria(pod *core_v1.Pod, podSpec pcn_types.ObjectQuery, nsSpec pcn_types.ObjectQuery, phase core_v1.PodPhase) bool {
 
 	//	This is actually useless but who knows....
@@ -483,7 +440,8 @@ func (p *PcnPodController) podMeetsCriteria(pod *core_v1.Pod, podSpec pcn_types.
 	} else {
 		//	Check the labels of the namespace
 		if len(nsSpec.Labels) > 0 {
-			nsList, err := p.nsController.GetNamespaces(pcn_types.ObjectQuery{
+			// Get the list
+			nsList, err := p.getNamespaces(pcn_types.ObjectQuery{
 				By:     "labels",
 				Labels: nsSpec.Labels,
 			})
@@ -535,21 +493,26 @@ func (p *PcnPodController) podMeetsCriteria(pod *core_v1.Pod, podSpec pcn_types.
 }
 
 func (p *PcnPodController) GetPods(queryPod pcn_types.ObjectQuery, queryNs pcn_types.ObjectQuery) ([]core_v1.Pod, error) {
-
 	//	The namespaces the pods must be found on
-	ns := []string{}
+	//	If this remains empty it means that I don't care about the namespace they are in.
+	ns := map[string]bool{}
 
-	//	First get the namespace
-	found, err := p.nsController.GetNamespaces(queryNs)
-	if err != nil {
-		return []core_v1.Pod{}, err
-	}
-	if len(found) < 1 {
-		//	If no namespace is found, it is useless to go on searching for pods
-		return []core_v1.Pod{}, nil
-	}
-	for _, n := range found {
-		ns = append(ns, n.Name)
+	//------------------------------------------------
+	//	Preliminary checks
+	//------------------------------------------------
+	//	The namespace
+	if strings.ToLower(queryNs.By) == "name" && queryNs.Name != "*" {
+		nsList, err := p.getNamespaces(queryNs)
+		if err != nil {
+			return []core_v1.Pod{}, err
+		}
+		if len(nsList) < 1 {
+			//	If no namespace is found, it is useless to go on searching for pods
+			return []core_v1.Pod{}, nil
+		}
+		for _, n := range nsList {
+			ns[n.Name] = true
+		}
 	}
 
 	//	Node specified?
@@ -558,80 +521,130 @@ func (p *PcnPodController) GetPods(queryPod pcn_types.ObjectQuery, queryNs pcn_t
 		node = queryPod.Node
 	}
 
-	//	Query by name
-	if strings.ToLower(queryPod.By) == "name" {
-		//	If we query by name, we don't need the namespace...
+	//	Helper function
+	getAndFilter := func(listOptions meta_v1.ListOptions) ([]core_v1.Pod, error) {
 		list := []core_v1.Pod{}
-		if len(queryPod.Name) < 0 {
-			return list, errors.New("Pod name not provided")
-		}
 
-		p.lock.Lock()
-		defer p.lock.Unlock()
-
-		if queryPod.Name == "*" {
-			for _, pod := range p.pods {
-				if len(ns) < 1 {
-					//	I don't care about the namespace
-					if node == "*" || (*pod.Pod).Spec.NodeName == node {
-						list = append(list, *pod.Pod)
-					}
-				}
-				for _, namespace := range ns {
-					if pod.Pod.Namespace == namespace {
-						if node == "*" || (*pod.Pod).Spec.NodeName == node {
-							list = append(list, *pod.Pod)
-						}
-					}
-				}
-
-			}
-			return list, nil
-		}
-
-		//	Get the pod with that name (namespace and node are ignored)
-		if pod, exists := p.pods[queryPod.Name]; exists {
-			return []core_v1.Pod{*pod.Pod}, nil
-		}
-
-		return []core_v1.Pod{}, nil
-	}
-
-	//	Query by labels
-	if strings.ToLower(queryPod.By) == "labels" {
-
-		if queryPod.Labels == nil {
-			return []core_v1.Pod{}, errors.New("Pod labels is nil")
-		}
-
-		if len(queryPod.Labels) < 1 {
-			return []core_v1.Pod{}, errors.New("No pod labels provided")
-		}
-
-		list := []core_v1.Pod{}
-		labels := p.implodeLabels(queryPod.Labels)
-
+		//	Do I care or not about the namespace?
+		//	If not, I'll put the NamespaceAll inside the map as its only value
 		if len(ns) < 1 {
-			ns = append(ns, meta_v1.NamespaceAll)
-		}
-		listOptions := meta_v1.ListOptions{
-			LabelSelector: labels,
-		}
-		if node != "*" {
-			listOptions.FieldSelector = "spec.nodename == " + node
+			ns[meta_v1.NamespaceAll] = true
 		}
 
-		for _, namespace := range ns {
-
-			if currentList, err := p.clientset.CoreV1().Pods(namespace).List(listOptions); err != nil {
-				log.Error("Error while trying to get pods with labels", labels, "on namespace", namespace)
+		//	Loop through all interested namespaces
+		for namespace := range ns {
+			lister, err := p.clientset.CoreV1().Pods(namespace).List(listOptions)
+			if err == nil {
+				for _, currentPod := range lister.Items {
+					if node == "*" || currentPod.Spec.NodeName == node {
+						list = append(list, currentPod)
+					}
+				}
 			} else {
-				list = append(list, currentList.Items...)
+				//return []core_v1.Pod, err
+				//	Just skip this namespace.
 			}
 		}
-
 		return list, nil
 	}
 
-	return []core_v1.Pod{}, errors.New("Unrecognized pod query")
+	//-------------------------------------
+	//	Find by name
+	//-------------------------------------
+
+	byName := func(name string) ([]core_v1.Pod, error) {
+		if len(name) < 1 {
+			return []core_v1.Pod{}, errors.New("Pod name not provided")
+		}
+
+		listOptions := meta_v1.ListOptions{}
+		if name != "*" {
+			listOptions.FieldSelector = "metadata.name=" + name
+		}
+
+		return getAndFilter(listOptions)
+	}
+
+	//-------------------------------------
+	//	Find by labels
+	//-------------------------------------
+
+	byLabels := func(labels map[string]string) ([]core_v1.Pod, error) {
+		if labels == nil {
+			return []core_v1.Pod{}, errors.New("Pod labels is nil")
+		}
+		if len(labels) < 1 {
+			//	If you need to get all pods, use get by name and name *
+			return []core_v1.Pod{}, errors.New("No pod labels provided")
+		}
+
+		listOptions := meta_v1.ListOptions{
+			LabelSelector: implodeLabels(labels),
+		}
+
+		return getAndFilter(listOptions)
+	}
+
+	switch strings.ToLower(queryPod.By) {
+	case "name":
+		return byName(queryPod.Name)
+	case "labels":
+		return byLabels(queryPod.Labels)
+	default:
+		return []core_v1.Pod{}, errors.New("Unrecognized pod query")
+	}
+}
+
+// getNamespaces gets the namespaces based on the provided query
+func (p *PcnPodController) getNamespaces(query pcn_types.ObjectQuery) ([]core_v1.Namespace, error) {
+
+	// Use the external namespace controller, if available
+	if p.nsController != nil {
+		return p.nsController.GetNamespaces(query)
+	}
+
+	//-------------------------------------
+	//	Find by name
+	//-------------------------------------
+
+	byName := func(name string) ([]core_v1.Namespace, error) {
+		if len(name) < 1 {
+			return []core_v1.Namespace{}, errors.New("Namespace name not provided")
+		}
+
+		listOptions := meta_v1.ListOptions{}
+		if name != "*" {
+			listOptions.FieldSelector = "metadata.name=" + name
+			log.Infof("%+v\n", listOptions)
+		}
+
+		lister, err := p.nsInterface.List(listOptions)
+		return lister.Items, err
+	}
+
+	//-------------------------------------
+	//	Find by labels
+	//-------------------------------------
+
+	byLabels := func(labels map[string]string) ([]core_v1.Namespace, error) {
+		if labels == nil {
+			return []core_v1.Namespace{}, errors.New("Namespace labels is nil")
+		}
+
+		lister, err := p.nsInterface.List(meta_v1.ListOptions{
+			LabelSelector: implodeLabels(labels),
+		})
+
+		return lister.Items, err
+	}
+
+	//	Get the appropriate function
+	switch strings.ToLower(query.By) {
+	case "name":
+		return byName(query.Name)
+	case "labels":
+		return byLabels(query.Labels)
+	default:
+		return []core_v1.Namespace{}, errors.New("Unrecognized namespace query")
+	}
 }

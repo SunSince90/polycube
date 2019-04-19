@@ -200,6 +200,7 @@ func (npc *DefaultNetworkPolicyController) work() {
 	}
 }
 
+// processPolicy will process the policy and dispatch it
 func (npc *DefaultNetworkPolicyController) processPolicy(event pcn_types.Event) error {
 	l := log.NewEntry(log.New())
 	l.WithFields(log.Fields{"by": npc.logBy, "method": "processPolicy()"})
@@ -295,7 +296,7 @@ func (npc *DefaultNetworkPolicyController) GetPolicies(query pcn_types.ObjectQue
 	}
 
 	//	Specific name?
-	list, err := lister.List(meta_v1.ListOptions{FieldSelector: "metadata.name == " + query.Name})
+	list, err := lister.List(meta_v1.ListOptions{FieldSelector: "metadata.name=" + query.Name})
 	if err != nil {
 		return []networking_v1.NetworkPolicy{}, err
 	}

@@ -1,6 +1,8 @@
 package controllers
 
 import (
+	"strings"
+
 	pcn_types "github.com/SunSince90/polycube/src/components/k8s/pcn_k8s/types"
 	"k8s.io/client-go/tools/cache"
 )
@@ -23,4 +25,15 @@ func buildEvent(obj interface{}, eventType pcn_types.EventType) (pcn_types.Event
 	}
 
 	return event, nil
+}
+
+// implodeLabels set labels in a key1=value1,key2=value2 format
+func implodeLabels(labels map[string]string) string {
+	implodedLabels := ""
+
+	for k, v := range labels {
+		implodedLabels += k + "=" + v + ","
+	}
+
+	return strings.Trim(implodedLabels, ",")
 }

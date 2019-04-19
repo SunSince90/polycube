@@ -255,7 +255,8 @@ func main() {
 	defaultnpc = pcn_controllers.NewDefaultNetworkPolicyController(nodeName, clientset)
 
 	//	Get the namespace controller
-	nsController = pcn_controllers.NewNsController(nodeName, clientset)
+	//	Update: removed because it's not used.
+	//nsController = pcn_controllers.NewNsController(nodeName, clientset)
 
 	//	Get the pod controller
 	podController = pcn_controllers.NewPodController(nodeName, clientset, nsController)
@@ -267,7 +268,7 @@ func main() {
 	go defaultnpc.Run()
 
 	//	Start the namespace controller
-	go nsController.Run()
+	//go nsController.Run()
 
 	//	Start the pod controller
 	go podController.Run()
@@ -310,7 +311,7 @@ func main() {
 	deleteNodes()
 	k8sNode.Uninit()
 	defaultnpc.Stop()
-	nsController.Stop()
+	//nsController.Stop()
 	podController.Stop()
 	log.Debugf("Bye bye")
 }
