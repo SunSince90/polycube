@@ -116,7 +116,6 @@ func (m *MockPodController) GetPods(pod pcn_types.ObjectQuery, ns pcn_types.Obje
 }
 
 //	Mock the firewall manager
-//	TODO: redo this
 type MockFirewallManager struct {
 	mock.Mock
 }

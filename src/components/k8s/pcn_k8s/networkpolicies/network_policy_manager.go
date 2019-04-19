@@ -337,7 +337,6 @@ func (manager *NetworkPolicyManager) checkNewPod(pod *core_v1.Pod) {
 	//-------------------------------------
 	k8sPolicies, _ := manager.dnpc.GetPolicies(pcn_types.ObjectQuery{By: "name", Name: "*"}, pod.Namespace)
 	l.Infoln("FOUND", len(k8sPolicies), "policies") // DELETE-ME
-	//	TODO: in a thread for each of them?
 	for _, kp := range k8sPolicies {
 		l.Infoln("checking policy", kp.Name) // DELETE-ME
 		if manager.defaultPolicyParser.DoesPolicyAffectPod(&kp, pod) {

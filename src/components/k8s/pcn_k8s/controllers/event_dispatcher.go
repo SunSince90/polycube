@@ -3,14 +3,14 @@ package controllers
 import (
 	"sync"
 
-	log "github.com/sirupsen/logrus"
+	pcn_types "github.com/SunSince90/polycube/src/components/k8s/pcn_k8s/types"
 )
 
 // EventDispatcher dispatches the event to all subscribers
 type EventDispatcher struct {
 	name        string
-	n           id
-	subscribers map[id]subscriber
+	n           pcn_types.SubscriberID
+	subscribers map[pcn_types.SubscriberID]subscriber
 	lock        sync.Mutex
 }
 
@@ -22,103 +22,63 @@ type EventDispatchersContainer struct {
 }
 
 type subscriber func(interface{})
-type id uint
 
 // NewEventDispatcher starts a new event dispatcher
 func NewEventDispatcher(name string) *EventDispatcher {
-
-	//	Let them know we're starting
-	/*log.SetLevel(log.DebugLevel)
-	var l = log.WithFields(log.Fields{
-		"by":     name,
-		"method": "NewEventDispatcher()",
-	})
-	l.Printf("%s starting...", name)*/
-
 	return &EventDispatcher{
 		name:        name,
 		n:           0,
-		subscribers: make(map[id]subscriber),
+		subscribers: make(map[pcn_types.SubscriberID]subscriber),
 	}
 }
 
+// Dispatch will dispatch the event to the list of subscribers
 func (d *EventDispatcher) Dispatch(item interface{}) {
-
-	var l = log.WithFields(log.Fields{
-		"by":     d.name,
-		"method": "Dispatch()",
-	})
-
-	//l.Println("Dispatching the event...")
-
-	//	Are there any subscribers?
-	if (len(d.subscribers)) < 1 {
-		l.Println("There are no subscribers!")
-		return
-	}
-
 	d.lock.Lock()
 	defer d.lock.Unlock()
 
+	//	Are there any subscribers?
+	if (len(d.subscribers)) < 1 {
+		return
+	}
+
 	//	Loop through all of the subscribers
 	for _, s := range d.subscribers {
+		// The controller will make it go
 		//	go s(item)
 		s(item)
 	}
 }
 
-func (d *EventDispatcher) Add(s subscriber) id {
-
-	/*var l = log.WithFields(log.Fields{
-		"by":     d.name,
-		"method": "Add()",
-	})
-	l.Println("Adding a new subscriber")*/
-
+// Add will add a new subscriber
+func (d *EventDispatcher) Add(s subscriber) pcn_types.SubscriberID {
 	d.lock.Lock()
 	defer d.lock.Unlock()
-
-	//l.Println("Going to add a new subscriber with id %d", d.n+1)
 
 	d.subscribers[d.n+1] = s
 	d.n++
 
 	return d.n
-
 }
 
-func (d *EventDispatcher) Remove(i id) {
-
-	/*var l = log.WithFields(log.Fields{
-		"by":     d.name,
-		"method": "Remove()",
-	})
-	l.Println("Going to delete")*/
-
+// Remove will remove a subscriber
+func (d *EventDispatcher) Remove(i pcn_types.SubscriberID) {
 	d.lock.Lock()
 	defer d.lock.Unlock()
 
 	if _, exists := d.subscribers[i]; exists {
 		delete(d.subscribers, i)
-
-		//l.Println("subscriber has been deleted")
 	}
 
 }
 
+// CleanUp will remove all subscribers at once
 func (d *EventDispatcher) CleanUp() {
-
-	/*var l = log.WithFields(log.Fields{
-		"by":     d.name,
-		"method": "CleanUp()",
-	})
-	l.Println("Going to clean")*/
-
 	d.lock.Lock()
 	defer d.lock.Unlock()
 
 	//	The suggested way to clean up a map, is to create a new empty one
 	//	The garbage collector will take care of the rest
-	d.subscribers = make(map[id]subscriber)
+	d.subscribers = make(map[pcn_types.SubscriberID]subscriber)
 
 }

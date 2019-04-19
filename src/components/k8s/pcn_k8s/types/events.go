@@ -7,6 +7,7 @@ type Event struct {
 }
 
 type EventType int
+type SubscriberID uint
 
 const (
 	New = iota + 1
