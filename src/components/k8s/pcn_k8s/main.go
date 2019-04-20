@@ -252,14 +252,14 @@ func main() {
 	}
 
 	//	Set up the network policy controller (for the kubernetes policies)
-	defaultnpc = pcn_controllers.NewDefaultNetworkPolicyController(nodeName, clientset)
+	defaultnpc = pcn_controllers.NewDefaultNetworkPolicyController(clientset)
 
 	//	Get the namespace controller
 	//	Update: removed because it's not used.
 	//nsController = pcn_controllers.NewNsController(nodeName, clientset)
 
 	//	Get the pod controller
-	podController = pcn_controllers.NewPodController(nodeName, clientset, nsController)
+	podController = pcn_controllers.NewPodController(clientset, nsController)
 
 	// kv handler
 	go kvM.Loop()

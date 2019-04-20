@@ -23,6 +23,7 @@ import (
 	workqueue "k8s.io/client-go/util/workqueue"
 )
 
+// PodController is the interface of the pod controller
 type PodController interface {
 	Run()
 	Stop()
@@ -30,8 +31,8 @@ type PodController interface {
 	GetPods(pcn_types.ObjectQuery, pcn_types.ObjectQuery) ([]core_v1.Pod, error)
 }
 
+// PcnPodController is the implementation of the pod controller
 type PcnPodController struct {
-	nodeName     string
 	nsController NamespaceController
 	clientset    kubernetes.Interface
 	queue        workqueue.RateLimitingInterface
@@ -46,7 +47,8 @@ type PcnPodController struct {
 	nsInterface  typed_core_v1.NamespaceInterface
 }
 
-func NewPodController(nodeName string, clientset kubernetes.Interface, nsController NamespaceController) PodController {
+// NewPodController will start a new pod controller
+func NewPodController(clientset kubernetes.Interface, nsController NamespaceController) PodController {
 	l := log.NewEntry(log.New())
 	l.WithFields(log.Fields{"by": "Pod Controller", "method": "NewPodController()"})
 
@@ -130,7 +132,6 @@ func NewPodController(nodeName string, clientset kubernetes.Interface, nsControl
 
 	//	Everything set up, return the controller
 	return &PcnPodController{
-		nodeName:     nodeName,
 		nsController: nsController,
 		clientset:    clientset,
 		queue:        queue,
@@ -492,6 +493,7 @@ func (p *PcnPodController) podMeetsCriteria(pod *core_v1.Pod, podSpec pcn_types.
 	return true
 }
 
+// GetPods gets pod according to a specific pod query and a namespace query
 func (p *PcnPodController) GetPods(queryPod pcn_types.ObjectQuery, queryNs pcn_types.ObjectQuery) ([]core_v1.Pod, error) {
 	//	The namespaces the pods must be found on
 	//	If this remains empty it means that I don't care about the namespace they are in.
@@ -615,7 +617,6 @@ func (p *PcnPodController) getNamespaces(query pcn_types.ObjectQuery) ([]core_v1
 		listOptions := meta_v1.ListOptions{}
 		if name != "*" {
 			listOptions.FieldSelector = "metadata.name=" + name
-			log.Infof("%+v\n", listOptions)
 		}
 
 		lister, err := p.nsInterface.List(listOptions)
