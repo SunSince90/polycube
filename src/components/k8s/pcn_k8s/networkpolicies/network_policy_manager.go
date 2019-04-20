@@ -77,9 +77,8 @@ func StartNetworkPolicyManager(basePath string, dnpc *pcn_controllers.DefaultNet
 		unscheduleThreshold: UnscheduleThreshold,
 		flaggedForDeletion:  map[string]*time.Timer{},
 		linkedPods:          map[k8s_types.UID]string{},
-
-		log:   log.New(),
-		fwAPI: fwAPI,
+		log:                 log.New(),
+		fwAPI:               fwAPI,
 	}
 
 	//-------------------------------------

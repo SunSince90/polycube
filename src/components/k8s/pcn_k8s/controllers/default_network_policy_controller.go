@@ -223,7 +223,8 @@ func (npc *DefaultNetworkPolicyController) processPolicy(event pcn_types.Event) 
 	}*/
 
 	//	Get the policy or try to recover it.
-	if policy, ok := _policy.(*networking_v1.NetworkPolicy); !ok {
+	policy, ok := _policy.(*networking_v1.NetworkPolicy)
+	if !ok {
 		tombstone, ok := _policy.(cache.DeletedFinalStateUnknown)
 		if !ok {
 			l.Errorln("error decoding object, invalid type")
