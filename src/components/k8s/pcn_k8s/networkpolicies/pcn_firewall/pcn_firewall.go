@@ -988,10 +988,8 @@ func (d *FirewallManager) IsPolicyEnforced(name string) bool {
 	d.lock.Lock()
 	defer d.lock.Unlock()
 
-	_, iexists := d.ingressRules[name]
-	_, eexists := d.egressRules[name]
-
-	return iexists || eexists
+	_, exists := d.policyTypes[name]
+	return exists
 }
 
 // Selector returns the namespace and labels of the pods monitored by this firewall manager
