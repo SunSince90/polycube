@@ -394,14 +394,12 @@ func connectFirewall(name, containerPort, switchPort string) error {
 		return err
 	}
 
-	//	try to set it to up
-	if response, err := k8switchAPI.UpdateK8switchPortsByID("k8switch0", switchPort, k8switch.Ports{
-		Peer: name + ":ingress-p",
-	}); err != nil {
-		log.Errorln("could not set port to up", err, response)
+	//	Link k8switch with firewall
+	if response, err := k8switchAPI.UpdateK8switchPortsPeerByID("k8switch0", switchPort, name+":ingress-p"); err != nil {
+		log.Errorln("could link switch with firewall:", err, response)
 		return err
 	}
-	log.Debugln("Successfully set the k8switch port to up")
+	log.Debugln("Successfully linked switch with firewall.")
 
 	//	Connect the firewall with the pod
 	if response, err := fwAPI.CreateFirewallPortsByID(nil, name, "egress-p", k8sfirewall.Ports{
