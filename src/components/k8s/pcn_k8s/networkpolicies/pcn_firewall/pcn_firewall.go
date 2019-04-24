@@ -78,7 +78,7 @@ type ruleIDs struct {
 // subscriptions contains the templates (here called actions) that should be used when a pod event occurs,
 // and the functions to be called when we need to unsubscribe.
 type subscriptions struct {
-	actions        map[string]pcn_types.ParsedRules
+	actions        map[string]*pcn_types.ParsedRules
 	unsubscriptors []func()
 }
 
@@ -628,19 +628,20 @@ func (d *FirewallManager) definePolicyActions(policyName string, actions []pcn_t
 		//	Create the action if does not exist
 		if _, exists := d.policyActions[action.Key]; !exists {
 			d.policyActions[action.Key] = &subscriptions{
-				actions: map[string]pcn_types.ParsedRules{},
+				actions: map[string]*pcn_types.ParsedRules{},
 			}
 			d.log.Infoln("should subscribe to key:", action.Key) // DELETE-ME
 			shouldSubscribe = true
 		}
 
+		d.log.Infof("actions: %+v\n", action)
+
 		//	Define the action...
 		if _, exists := d.policyActions[action.Key].actions[policyName]; !exists {
-			d.policyActions[action.Key].actions[policyName] = pcn_types.ParsedRules{}
+			d.policyActions[action.Key].actions[policyName] = &pcn_types.ParsedRules{}
 		}
-		policyTemplates := d.policyActions[action.Key].actions[policyName]
-		policyTemplates.Ingress = append(policyTemplates.Ingress, action.Templates.Ingress...)
-		policyTemplates.Egress = append(policyTemplates.Egress, action.Templates.Egress...)
+		d.policyActions[action.Key].actions[policyName].Ingress = append(d.policyActions[action.Key].actions[policyName].Ingress, action.Templates.Ingress...)
+		d.policyActions[action.Key].actions[policyName].Egress = append(d.policyActions[action.Key].actions[policyName].Egress, action.Templates.Egress...)
 
 		//	... And subscribe to events
 		if shouldSubscribe {
