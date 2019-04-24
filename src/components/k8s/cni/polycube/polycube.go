@@ -399,7 +399,7 @@ func connectFirewall(name, containerPort, switchPort string) error {
 		Peer: name + ":ingress-p",
 	}); err != nil {
 		log.Errorln("could not set port to up", err, response)
-		return err
+		//return err
 	}
 	log.Debugln("Successfully set the k8switch port to up")
 
