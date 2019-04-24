@@ -664,7 +664,7 @@ func (d *FirewallManager) definePolicyActions(policyName string, actions []pcn_t
 				d.reactToPod(pcn_types.Update, pod, action.Key)
 			})
 			//	-- To delete events
-			deleteUnsub, err := d.podController.Subscribe(pcn_types.Update, podQuery, nsQuery, pcn_types.PodRunning, func(pod *core_v1.Pod) {
+			deleteUnsub, err := d.podController.Subscribe(pcn_types.Delete, podQuery, nsQuery, pcn_types.PodRunning, func(pod *core_v1.Pod) {
 				d.reactToPod(pcn_types.Delete, pod, "")
 			})
 

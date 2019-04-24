@@ -387,9 +387,8 @@ func connectFirewall(name, containerPort, switchPort string) error {
 	//	Now create the ports
 	//	Connect the firewall with the switch
 	if response, err := fwAPI.CreateFirewallPortsByID(nil, name, "ingress-p", k8sfirewall.Ports{
-		Name:   "ingress-p",
-		Peer:   "k8switch0:" + switchPort,
-		Status: "up",
+		Name: "ingress-p",
+		Peer: "k8switch0:" + switchPort,
 	}); err != nil {
 		log.Errorln("An error occurred while trying to create ports for firewall:", name, switchPort, err, response)
 		return err
@@ -406,9 +405,8 @@ func connectFirewall(name, containerPort, switchPort string) error {
 
 	//	Connect the firewall with the pod
 	if response, err := fwAPI.CreateFirewallPortsByID(nil, name, "egress-p", k8sfirewall.Ports{
-		Name:   "egress-p",
-		Peer:   containerPort,
-		Status: "up",
+		Name: "egress-p",
+		Peer: containerPort,
 	}); err != nil {
 		log.Errorln("An error occurred while trying to create ports for firewall:", name, containerPort, err, response)
 		return err
