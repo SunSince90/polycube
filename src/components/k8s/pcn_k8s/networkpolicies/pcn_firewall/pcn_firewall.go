@@ -715,15 +715,15 @@ func (d *FirewallManager) reactToPod(event pcn_types.EventType, pod *core_v1.Pod
 		//	Usually an update only consists of few rules, so this should be very fast.
 		for policy, rules := range actions.actions {
 			d.log.Infof("%s, %+v\n", policy, rules) // DELETE-ME
-			if d.IsPolicyEnforced(policy) {
-				d.log.Infof("%s is enforced", policy) // DELETE-ME
-				ingressRules, egressRules := d.buildIDs(policy, ip, rules.Ingress, rules.Egress)
-				ingress = append(ingress, ingressRules...)
-				egress = append(egress, egressRules...)
+			//if d.IsPolicyEnforced(policy) {
+			d.log.Infof("%s is enforced", policy) // DELETE-ME
+			ingressRules, egressRules := d.buildIDs(policy, ip, rules.Ingress, rules.Egress)
+			ingress = append(ingress, ingressRules...)
+			egress = append(egress, egressRules...)
 
-				d.log.Infof("built react ing ids: %+v\n", ingress) // DELETE-ME
-				d.log.Infof("built react egr ids: %+v\n", ingress) // DELETE-ME
-			}
+			d.log.Infof("built react ing ids: %+v\n", ingress) // DELETE-ME
+			d.log.Infof("built react egr ids: %+v\n", ingress) // DELETE-ME
+			//}
 		}
 
 		//	Now inject the rules in all firewalls linked.
