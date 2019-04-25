@@ -22,6 +22,7 @@ func buildEvent(obj interface{}, eventType pcn_types.EventType) (pcn_types.Event
 		Key:       key,
 		Type:      eventType,
 		Namespace: namespace,
+		Object:    obj,
 	}
 
 	return event, nil

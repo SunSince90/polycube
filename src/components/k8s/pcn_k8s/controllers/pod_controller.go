@@ -251,7 +251,7 @@ func (p *PcnPodController) process(event pcn_types.Event) error {
 	//	Get the pod or try to recover it.
 	pod, ok := _pod.(*core_v1.Pod)
 	if !ok {
-		tombstone, ok := _pod.(cache.DeletedFinalStateUnknown)
+		tombstone, ok := event.Object.(cache.DeletedFinalStateUnknown)
 		if !ok {
 			l.Errorln("error decoding object, invalid type")
 			utilruntime.HandleError(fmt.Errorf("error decoding object, invalid type"))
