@@ -258,7 +258,108 @@ func TestReactToTerminated(t *testing.T) {
 	assert.Empty(t, f.egressRules[policyOne][int32(3)])
 	assert.Zero(t, len(f.egressRules[policyOne]))
 	assert.NotZero(t, len(f.egressRules[policyTwo]))
+}
 
+func TestReactToUpdate(t *testing.T) {
+	redis := "nsName:production|podLabels:app=redis,version=2.0"
+	policyOne := "policy-one"
+	policyTwo := "policy-two"
+	f := &FirewallManager{
+		fwAPI:      MockAPI,
+		log:        log.New(),
+		linkedPods: map[k8s_types.UID]string{},
+		policyActions: map[string]*subscriptions{
+			redis: &subscriptions{
+				actions: map[string]*pcn_types.ParsedRules{
+					policyOne: &pcn_types.ParsedRules{},
+				},
+				unsubscriptors: []func(){
+					func() {
+						fmt.Println("redis update unsubscriptor")
+					},
+					func() {
+						fmt.Println("redis delete unsubscriptor")
+					},
+				},
+			},
+		},
+		ingressRules: map[string]map[int32]k8sfirewall.ChainRule{
+			policyOne: map[int32]k8sfirewall.ChainRule{
+				2: k8sfirewall.ChainRule{
+					Id:  2,
+					Src: "10.10.10.10",
+				},
+				4: k8sfirewall.ChainRule{
+					Id:  4,
+					Src: "10.10.10.10",
+				},
+				8: k8sfirewall.ChainRule{
+					Id:  8,
+					Src: "11.11.11.11",
+				},
+			},
+			policyTwo: map[int32]k8sfirewall.ChainRule{
+				5: k8sfirewall.ChainRule{
+					Id:  5,
+					Src: "10.10.10.10",
+				},
+				6: k8sfirewall.ChainRule{
+					Id:  6,
+					Src: "11.11.11.11",
+				},
+				7: k8sfirewall.ChainRule{
+					Id:  7,
+					Src: "12.12.12.12",
+				},
+			},
+		},
+		ingressIPs: map[string]map[int32]string{
+			"10.10.10.10": map[int32]string{
+				int32(2): policyOne,
+				int32(4): policyOne,
+				int32(5): policyTwo,
+			},
+			"11.11.11.11": map[int32]string{
+				int32(8): policyOne,
+				int32(6): policyTwo,
+			},
+			"12.12.12.12": map[int32]string{
+				int32(7): policyTwo,
+			},
+		},
+		egressRules: map[string]map[int32]k8sfirewall.ChainRule{
+			policyOne: map[int32]k8sfirewall.ChainRule{
+				3: k8sfirewall.ChainRule{
+					Id:  3,
+					Dst: "10.10.10.10",
+				},
+			},
+			policyTwo: map[int32]k8sfirewall.ChainRule{
+				1: k8sfirewall.ChainRule{
+					Id:  1,
+					Dst: "11.11.11.11",
+				},
+			},
+		},
+		egressIPs: map[string]map[int32]string{
+			"10.10.10.10": map[int32]string{
+				int32(3): policyOne,
+			},
+			"11.11.11.11": map[int32]string{
+				int32(1): policyTwo,
+			},
+		},
+	}
+	pod := &core_v1.Pod{
+		ObjectMeta: meta_v1.ObjectMeta{
+			UID: "POD-UID-5",
+		},
+		Status: core_v1.PodStatus{
+			PodIP: "12.12.12.12",
+		},
+	}
+
+	f.reactToPod(pcn_types.Update, pod, redis)
 }
 
 func TestDeleteAllPolicyRules(t *testing.T) {
