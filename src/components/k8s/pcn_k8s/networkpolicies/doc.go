@@ -9,5 +9,7 @@ const (
 	// PM is the short name of the Network Policy Manager
 	PM = "Policy Manager"
 	// UnscheduleThreshold is the maximum number of hours a firewall manager should live with no pods monitored.
-	UnscheduleThreshold = 24
+	//	For testing: 5 minutes
+	UnscheduleThreshold = 5
+	//UnscheduleThreshold = 24
 )

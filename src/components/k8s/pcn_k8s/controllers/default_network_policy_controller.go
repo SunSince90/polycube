@@ -217,11 +217,6 @@ func (npc *DefaultNetworkPolicyController) processPolicy(event pcn_types.Event) 
 		return fmt.Errorf("An error occurred: cannot find cache element with key %s from ", event.Key)
 	}
 
-	//	Get the policy
-	/*if _policy != nil {
-		policy = _policy.(*networking_v1.NetworkPolicy)
-	}*/
-
 	//	Get the policy or try to recover it.
 	policy, ok := _policy.(*networking_v1.NetworkPolicy)
 	if !ok {

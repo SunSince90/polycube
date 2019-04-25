@@ -233,21 +233,6 @@ func (p *PcnPodController) process(event pcn_types.Event) error {
 		return fmt.Errorf("An error occurred: cannot find cache element with key %s from ", event.Key)
 	}
 
-	//	Does not exist?
-	/*if !exists {
-		//l.Infof("Object with key %s does not exist. Going to trigger a onDelete function", event.Key)
-		splitted := strings.Split(event.Key, "/")
-		tempPod, ok := p.pods[splitted[1]]
-		if ok {
-			pod = tempPod.Pod
-		}
-	}*/
-
-	//	Get the pod
-	/*if _pod != nil {
-		pod = _pod.(*core_v1.Pod)
-	}*/
-
 	//	Get the pod or try to recover it.
 	pod, ok := _pod.(*core_v1.Pod)
 	if !ok {

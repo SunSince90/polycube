@@ -44,11 +44,11 @@ type NetworkPolicyManager struct {
 	lock sync.Mutex
 	//	localFirewalls is a map of the firewall managers inside this node.
 	localFirewalls map[string]pcn_firewall.PcnFirewall
-	//	unscheduleThreshold is the number of HOURS after which a firewall manager should be deleted if no pods are assigned to it.
+	//	unscheduleThreshold is the number of MINUTES after which a firewall manager should be deleted if no pods are assigned to it.
 	unscheduleThreshold int
 	//	flaggedForDeletion contains ids of firewall managers that are scheduled to be deleted.
 	//	Firewall managers will continue updating rules and parse policies even when they have no pods assigned to them anymore (they just won't inject rules anywhere).
-	//  But if this situation persists for at least unscheduleThreshold hours, then they are going to be deleted.
+	//  But if this situation persists for at least unscheduleThreshold minutes, then they are going to be deleted.
 	flaggedForDeletion map[string]*time.Timer
 	// linkedPods is a map linking local pods to local firewalls.
 	// It is used to check if a pod has changed and needs to be unlinked. It is a very rare situation, but... you know...
@@ -291,8 +291,6 @@ func (manager *NetworkPolicyManager) checkNewPod(pod *core_v1.Pod) {
 		return
 	}
 
-	l.Infoln("checking new pod", pod.Name) // DELETE-ME
-
 	//	Get or create the firewall manager for this pod and then link it.
 	//	Doing it a lambda so we can use defer, and we can block the thread for as short time as possible
 	linkPod := func() (bool, pcn_firewall.PcnFirewall) {
@@ -308,7 +306,6 @@ func (manager *NetworkPolicyManager) checkNewPod(pod *core_v1.Pod) {
 		if inserted {
 			manager.linkedPods[pod.UID] = fw.Name()
 			manager.unflagForDeletion(fw.Name())
-			l.Infoln("POD LINKED", pod.Name) // DELETE-ME
 		}
 
 		// If the firewall manager already existed there is no point in going on: policies are already there.
@@ -321,7 +318,6 @@ func (manager *NetworkPolicyManager) checkNewPod(pod *core_v1.Pod) {
 	shouldInit, fw := linkPod()
 	if !shouldInit {
 		//	Firewall is already inited. You can stop here.
-		l.Infoln("SHOULD NOT INIT") // DELETE-ME
 		return
 	}
 
@@ -335,9 +331,7 @@ func (manager *NetworkPolicyManager) checkNewPod(pod *core_v1.Pod) {
 	//	Must this pod enforce any policy?
 	//-------------------------------------
 	k8sPolicies, _ := manager.dnpc.GetPolicies(pcn_types.ObjectQuery{By: "name", Name: "*"}, pod.Namespace)
-	l.Infoln("FOUND", len(k8sPolicies), "policies") // DELETE-ME
 	for _, kp := range k8sPolicies {
-		l.Infoln("checking policy", kp.Name) // DELETE-ME
 		if manager.defaultPolicyParser.DoesPolicyAffectPod(&kp, pod) {
 			manager.deployK8sPolicyToFw(&kp, fw)
 		}
@@ -395,7 +389,7 @@ func (manager *NetworkPolicyManager) flagForDeletion(fwKey string) {
 
 	//	Was it flagged?
 	if !wasFlagged {
-		manager.flaggedForDeletion[fwKey] = time.AfterFunc(time.Hour*time.Duration(manager.unscheduleThreshold), func() {
+		manager.flaggedForDeletion[fwKey] = time.AfterFunc(time.Minute*time.Duration(manager.unscheduleThreshold), func() {
 			manager.deleteFirewallManager(fwKey)
 		})
 	}
