@@ -325,10 +325,8 @@ func (d *FirewallManager) EnforcePolicy(policyName, policyType string, ingress, 
 	//-------------------------------------
 
 	//	So we just enforced a new policy. The final step is to change default actions (if needed)
-	if _, exists := d.policyTypes[policyName]; !exists {
-		d.policyTypes[policyName] = policyType
-		d.updateCounts("increase", policyType)
-	}
+	d.policyTypes[policyName] = policyType
+	d.updateCounts("increase", policyType)
 
 	//-------------------------------------
 	//	Inject the rules on each firewall
@@ -716,7 +714,7 @@ func (d *FirewallManager) reactToPod(event pcn_types.EventType, pod *core_v1.Pod
 		for policy, rules := range actions.actions {
 			d.log.Infof("%s, %+v\n", policy, rules) // DELETE-ME
 			//if d.IsPolicyEnforced(policy) {
-			d.log.Infof("%s is enforced", policy) // DELETE-ME
+			d.log.Infof("%s is enforced", policy, d.IsPolicyEnforced(policy)) // DELETE-ME
 			ingressRules, egressRules := d.buildIDs(policy, ip, rules.Ingress, rules.Egress)
 			ingress = append(ingress, ingressRules...)
 			egress = append(egress, egressRules...)
