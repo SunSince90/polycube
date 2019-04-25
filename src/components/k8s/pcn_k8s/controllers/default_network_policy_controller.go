@@ -225,19 +225,22 @@ func (npc *DefaultNetworkPolicyController) processPolicy(event pcn_types.Event) 
 	//	Get the policy or try to recover it.
 	policy, ok := _policy.(*networking_v1.NetworkPolicy)
 	if !ok {
-		tombstone, ok := event.Object.(cache.DeletedFinalStateUnknown)
+		policy, ok = event.Object.(*networking_v1.NetworkPolicy)
 		if !ok {
-			l.Errorln("error decoding object, invalid type")
-			utilruntime.HandleError(fmt.Errorf("error decoding object, invalid type"))
-			return fmt.Errorf("error decoding object, invalid type")
+			tombstone, ok := event.Object.(cache.DeletedFinalStateUnknown)
+			if !ok {
+				l.Errorln("error decoding object, invalid type")
+				utilruntime.HandleError(fmt.Errorf("error decoding object, invalid type"))
+				return fmt.Errorf("error decoding object, invalid type")
+			}
+			policy, ok = tombstone.Obj.(*networking_v1.NetworkPolicy)
+			if !ok {
+				l.Errorln("error decoding object tombstone, invalid type")
+				utilruntime.HandleError(fmt.Errorf("error decoding object tombstone, invalid type"))
+				return fmt.Errorf("error decoding object tombstone, invalid type")
+			}
+			l.Infof("Recovered deleted object '%s' from tombstone", policy.GetName())
 		}
-		policy, ok = tombstone.Obj.(*networking_v1.NetworkPolicy)
-		if !ok {
-			l.Errorln("error decoding object tombstone, invalid type")
-			utilruntime.HandleError(fmt.Errorf("error decoding object tombstone, invalid type"))
-			return fmt.Errorf("error decoding object tombstone, invalid type")
-		}
-		l.Infof("Recovered deleted object '%s' from tombstone", policy.GetName())
 	}
 
 	//-------------------------------------

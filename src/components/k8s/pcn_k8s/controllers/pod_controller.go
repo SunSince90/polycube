@@ -251,19 +251,22 @@ func (p *PcnPodController) process(event pcn_types.Event) error {
 	//	Get the pod or try to recover it.
 	pod, ok := _pod.(*core_v1.Pod)
 	if !ok {
-		tombstone, ok := event.Object.(cache.DeletedFinalStateUnknown)
+		pod, ok = event.Object.(*core_v1.Pod)
 		if !ok {
-			l.Errorln("error decoding object, invalid type")
-			utilruntime.HandleError(fmt.Errorf("error decoding object, invalid type"))
-			return fmt.Errorf("error decoding object, invalid type")
+			tombstone, ok := event.Object.(cache.DeletedFinalStateUnknown)
+			if !ok {
+				l.Errorln("error decoding object, invalid type")
+				utilruntime.HandleError(fmt.Errorf("error decoding object, invalid type"))
+				return fmt.Errorf("error decoding object, invalid type")
+			}
+			pod, ok = tombstone.Obj.(*core_v1.Pod)
+			if !ok {
+				l.Errorln("error decoding object tombstone, invalid type")
+				utilruntime.HandleError(fmt.Errorf("error decoding object tombstone, invalid type"))
+				return fmt.Errorf("error decoding object tombstone, invalid type")
+			}
+			l.Infof("Recovered deleted object '%s' from tombstone", pod.GetName())
 		}
-		pod, ok = tombstone.Obj.(*core_v1.Pod)
-		if !ok {
-			l.Errorln("error decoding object tombstone, invalid type")
-			utilruntime.HandleError(fmt.Errorf("error decoding object tombstone, invalid type"))
-			return fmt.Errorf("error decoding object tombstone, invalid type")
-		}
-		l.Infof("Recovered deleted object '%s' from tombstone", pod.GetName())
 	}
 
 	//-------------------------------------
