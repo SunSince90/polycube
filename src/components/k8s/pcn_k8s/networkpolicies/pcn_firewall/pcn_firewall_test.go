@@ -141,13 +141,10 @@ func TestDecreseCount(t *testing.T) {
 
 func TestIsPolicyEnforced(t *testing.T) {
 	f := &FirewallManager{
-		ingressRules: map[string]map[int32]k8sfirewall.ChainRule{
-			"policy":              map[int32]k8sfirewall.ChainRule{},
-			"policy-only-ingress": map[int32]k8sfirewall.ChainRule{},
-		},
-		egressRules: map[string]map[int32]k8sfirewall.ChainRule{
-			"policy":             map[int32]k8sfirewall.ChainRule{},
-			"policy-only-egress": map[int32]k8sfirewall.ChainRule{},
+		policyTypes: map[string]string{
+			"policy":              "*",
+			"policy-only-ingress": "ingress",
+			"policy-only-egress":  "egress",
 		},
 	}
 
@@ -367,8 +364,8 @@ func TestDeleteAllPolicyTemplates(t *testing.T) {
 		linkedPods: map[k8s_types.UID]string{},
 		policyActions: map[string]*subscriptions{
 			redis: &subscriptions{
-				actions: map[string]pcn_types.ParsedRules{
-					policyOne: pcn_types.ParsedRules{},
+				actions: map[string]*pcn_types.ParsedRules{
+					policyOne: &pcn_types.ParsedRules{},
 				},
 				unsubscriptors: []func(){
 					func() {
@@ -380,9 +377,9 @@ func TestDeleteAllPolicyTemplates(t *testing.T) {
 				},
 			},
 			apache: &subscriptions{
-				actions: map[string]pcn_types.ParsedRules{
-					policyOne: pcn_types.ParsedRules{},
-					policyTwo: pcn_types.ParsedRules{},
+				actions: map[string]*pcn_types.ParsedRules{
+					policyOne: &pcn_types.ParsedRules{},
+					policyTwo: &pcn_types.ParsedRules{},
 				},
 				unsubscriptors: []func(){
 					func() {
@@ -419,8 +416,8 @@ func TestDestroy(t *testing.T) {
 		linkedPods: map[k8s_types.UID]string{},
 		policyActions: map[string]*subscriptions{
 			redis: &subscriptions{
-				actions: map[string]pcn_types.ParsedRules{
-					policyOne: pcn_types.ParsedRules{},
+				actions: map[string]*pcn_types.ParsedRules{
+					policyOne: &pcn_types.ParsedRules{},
 				},
 				unsubscriptors: []func(){
 					func() {
@@ -432,9 +429,9 @@ func TestDestroy(t *testing.T) {
 				},
 			},
 			apache: &subscriptions{
-				actions: map[string]pcn_types.ParsedRules{
-					policyOne: pcn_types.ParsedRules{},
-					policyTwo: pcn_types.ParsedRules{},
+				actions: map[string]*pcn_types.ParsedRules{
+					policyOne: &pcn_types.ParsedRules{},
+					policyTwo: &pcn_types.ParsedRules{},
 				},
 				unsubscriptors: []func(){
 					func() {

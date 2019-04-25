@@ -505,8 +505,12 @@ func (d *FirewallManager) buildIDs(policyName, target string, ingress, egress []
 	defer applyWait.Wait()
 
 	// The rules in memory
-	d.ingressRules[policyName] = map[int32]k8sfirewall.ChainRule{}
-	d.egressRules[policyName] = map[int32]k8sfirewall.ChainRule{}
+	if _, exists := d.ingressRules[policyName]; !exists {
+		d.ingressRules[policyName] = map[int32]k8sfirewall.ChainRule{}
+	}
+	if _, exists := d.egressRules[policyName]; !exists {
+		d.egressRules[policyName] = map[int32]k8sfirewall.ChainRule{}
+	}
 
 	description := "policy=" + policyName
 
@@ -520,14 +524,13 @@ func (d *FirewallManager) buildIDs(policyName, target string, ingress, egress []
 			d.log.Infof("built ingress %+v\n", ingress[i]) //	DELETE-ME
 			if len(target) > 0 {
 				ingress[i].Src = target
-
-				//	Store its ID in memory, so we can delete it instantly without looping through rules
-				if _, exists := d.ingressIPs[target]; !exists {
-					d.ingressIPs[target] = map[int32]string{}
-				}
-				d.ingressIPs[target][ingress[i].Id] = policyName
-				d.log.Infoln("rule inserted in cache") //	DELETE-ME
 			}
+			//	Store its ID in memory, so we can delete it instantly without looping through rules
+			if _, exists := d.ingressIPs[ingress[i].Src]; !exists {
+				d.ingressIPs[ingress[i].Src] = map[int32]string{}
+			}
+			d.ingressIPs[ingress[i].Src][ingress[i].Id] = policyName
+			d.log.Infoln("rule inserted in cache") //	DELETE-ME
 			d.ingressRules[policyName][d.ingressID+int32(i)] = ingress[i]
 		}
 
@@ -544,14 +547,13 @@ func (d *FirewallManager) buildIDs(policyName, target string, ingress, egress []
 			d.log.Infof("built egress %+v\n", egress[i]) //	DELETE-ME
 			if len(target) > 0 {
 				egress[i].Dst = target
-
-				//	Store its ID in memory, so we can delete it instantly without looping through rules
-				if _, exists := d.egressIPs[target]; !exists {
-					d.egressIPs[target] = map[int32]string{}
-				}
-				d.egressIPs[target][egress[i].Id] = policyName
-				d.log.Infoln("rule inserted in cache") //	DELETE-ME
 			}
+			//	Store its ID in memory, so we can delete it instantly without looping through rules
+			if _, exists := d.egressIPs[egress[i].Dst]; !exists {
+				d.egressIPs[egress[i].Dst] = map[int32]string{}
+			}
+			d.egressIPs[egress[i].Dst][egress[i].Id] = policyName
+			d.log.Infoln("rule inserted in cache") //	DELETE-ME
 			d.egressRules[policyName][d.egressID+int32(i)] = egress[i]
 		}
 
@@ -712,9 +714,9 @@ func (d *FirewallManager) reactToPod(event pcn_types.EventType, pod *core_v1.Pod
 		//	Build all rules regardless of the policy, so we can inject them at once and apply only once.
 		//	Usually an update only consists of few rules, so this should be very fast.
 		for policy, rules := range actions.actions {
-			d.log.Infof("%s, %+v\n", policy, rules) // DELETE-ME
+			d.log.Infof("current policy: %s, with rules actions: %+v\n", policy, rules) // DELETE-ME
 			//if d.IsPolicyEnforced(policy) {
-			d.log.Infof("%s is enforced", policy, d.IsPolicyEnforced(policy)) // DELETE-ME
+			d.log.Infoln(policy, "is enforced", d.IsPolicyEnforced(policy)) // DELETE-ME
 			ingressRules, egressRules := d.buildIDs(policy, ip, rules.Ingress, rules.Egress)
 			ingress = append(ingress, ingressRules...)
 			egress = append(egress, egressRules...)
