@@ -35,7 +35,7 @@ using polycube::service::PortType;
 #include "polycube/services/json.hpp"
 #include "port_tc.h"
 #include "port_xdp.h"
-#include "utils.h"
+#include "utils/utils.h"
 
 namespace polycube {
 namespace polycubed {
@@ -87,6 +87,8 @@ class ServiceController {
 
   static std::unordered_map<std::string, std::shared_ptr<ExtIface>>
       ports_to_ifaces;
+
+  static void netlink_notification(int ifindex, const std::string &ifname);
 
  private:
   std::shared_ptr<spdlog::logger> l;

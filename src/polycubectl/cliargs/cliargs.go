@@ -21,6 +21,11 @@ import (
 	"strconv"
 	"strings"
 
+	"os"
+	"bufio"
+	"bytes"
+	"github.com/ghodss/yaml"
+
 	"github.com/polycube-network/polycube/src/polycubectl/config"
 	"github.com/polycube-network/polycube/src/polycubectl/httprequest"
 
@@ -431,6 +436,11 @@ func (cli *CLIArgs) GetHTTPRequest() (*httprequest.HTTPRequest, error) {
 	var url string
 
 	url = cli.buildURL()
+	var stat os.FileInfo
+	var staterr error
+	if os.Stdin != nil {
+		stat, staterr = os.Stdin.Stat()
+	}
 
 	// TODO: is command == "" required?
 	if !cli.IsHelp && (cli.Command == AddCommand ||
@@ -440,6 +450,28 @@ func (cli *CLIArgs) GetHTTPRequest() (*httprequest.HTTPRequest, error) {
 			url0, body0 := cli.buildSingleParamBody()
 			url += url0
 			body = body0
+		} else if os.Stdin != nil && staterr == nil &&
+			stat.Mode() & os.ModeCharDevice == 0 && stat.Size() > 0 {
+			// os.ModeCharDevice flag is set when piping text to the stdin
+			// use text in the standard input as body
+			var buffer bytes.Buffer
+			reader := bufio.NewReader(os.Stdin)
+			text, _ := reader.ReadString('\n')
+			for text != "" {
+				buffer.WriteString(text)
+				text, _ = reader.ReadString('\n')
+			}
+
+			if buffer.Len() > 0 {
+				jsonBuff, err := yaml.YAMLToJSON(buffer.Bytes())
+				if err != nil {
+					return nil, err
+				} else {
+					body = jsonBuff
+				}
+			} else {
+				body = cli.buildBody()
+			}
 		} else {
 			body = cli.buildBody()
 		}

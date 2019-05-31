@@ -17,7 +17,7 @@
 #include "Chain.h"
 #include "Firewall.h"
 
-Chain::Chain(Firewall &parent, const ChainJsonObject &conf) : parent_(parent) {
+Chain::Chain(Firewall &parent, const ChainJsonObject &conf) : ChainBase(parent) {
   update(conf);
 }
 
@@ -52,23 +52,6 @@ void Chain::update(const ChainJsonObject &conf) {
   }
 }
 
-ChainJsonObject Chain::toJsonObject() {
-  ChainJsonObject conf;
-
-  conf.setDefault(getDefault());
-
-  for (auto &i : getStatsList()) {
-    conf.addChainStats(i->toJsonObject());
-  }
-
-  conf.setName(getName());
-  for (auto &i : getRuleList()) {
-    conf.addChainRule(i->toJsonObject());
-  }
-
-  return conf;
-}
-
 ActionEnum Chain::getDefault() {
   // This method retrieves the default value.
   return this->defaultAction;
@@ -82,10 +65,11 @@ void Chain::setDefault(const ActionEnum &value) {
   }
   this->defaultAction = value;
   try {
-    parent_
-        .programs[std::make_pair(ModulesConstants::DEFAULTACTION,
-                                 ChainNameEnum::INVALID)]
-        ->reload();
+    if (name == ChainNameEnum::INGRESS) {
+      parent_.ingress_programs[ModulesConstants::DEFAULTACTION]->reload();
+    } else if (name == ChainNameEnum::EGRESS) {
+      parent_.egress_programs[ModulesConstants::DEFAULTACTION]->reload();
+    }
 
   } catch (std::runtime_error re) {
     logger()->error(
@@ -136,34 +120,45 @@ ChainAppendOutputJsonObject Chain::append(ChainAppendInputJsonObject input) {
 
   uint32_t id = rules_.size();
   conf.setId(id);
-  ChainAppendOutputJsonObject result;
   addRule(id, conf);
+
+  ChainAppendOutputJsonObject result;
   result.setId(id);
+
+//  TODO improve
+//  if (parent_.interactive_) {
+//    ChainRule::applyAcceptEstablishedOptimization(*this);
+//    parent_.attachInterfaces();
+//  }
+
   return result;
 }
 
 ChainResetCountersOutputJsonObject Chain::resetCounters() {
   ChainResetCountersOutputJsonObject result;
   try {
-    std::map<std::pair<uint8_t, ChainNameEnum>, Firewall::Program *> &programs =
-        parent_.programs;
+    std::vector<Firewall::Program *> *programs;
+    if (name == ChainNameEnum::INGRESS) {
+      programs = &parent_.ingress_programs;
+    } else if (name == ChainNameEnum::EGRESS) {
+       programs = &parent_.egress_programs;
+    } else {
+      return result;
+    }
 
-    if (programs.find(std::make_pair(ModulesConstants::ACTION, name)) ==
-        programs.end()) {
+    if (programs->at(ModulesConstants::ACTION) == nullptr) {
       throw std::runtime_error("No action loaded yet.");
     }
 
     auto actionProgram = dynamic_cast<Firewall::ActionLookup *>(
-        programs[std::make_pair(ModulesConstants::ACTION, name)]);
+        programs->at(ModulesConstants::ACTION));
 
     for (auto cr : rules_) {
       actionProgram->flushCounters(cr->getId());
     }
 
     dynamic_cast<Firewall::DefaultAction *>(
-        programs[std::make_pair(ModulesConstants::DEFAULTACTION,
-                                ChainNameEnum::INVALID)])
-        ->flushCounters(name);
+        programs->at(ModulesConstants::DEFAULTACTION))->flushCounters(name);
 
     counters_.clear();
 
@@ -188,63 +183,39 @@ ChainApplyRulesOutputJsonObject Chain::applyRules() {
   return result;
 }
 
-std::shared_ptr<spdlog::logger> Chain::logger() {
-  return parent_.logger();
-}
-
 uint32_t Chain::getNrRules() {
-  /*
-   * ChainRule::get returns only the valid rules to avoid segmentation faults
-   * all around the code.
-   * This methods returns the true number of rules, that can't be get from
-   * ChainRule::get without
-   * looking for the max id.
-   */
   return rules_.size();
 }
 
-/*
- * returns only valid elements in the rules_ vector
- */
-std::vector<std::shared_ptr<ChainRule>> Chain::getRealRuleList() {
-  std::vector<std::shared_ptr<ChainRule>> rules;
-  for (auto &rule : rules_) {
-    if (rule) {
-      rules.push_back(rule);
-    }
-  }
-  return rules;
-}
-
 void Chain::updateChain() {
+  std::vector<Firewall::Program *> *programs;
+  if (name == ChainNameEnum::INGRESS) {
+    programs = &parent_.ingress_programs;
+  } else if (name == ChainNameEnum::EGRESS) {
+     programs = &parent_.egress_programs;
+  } else {
+    return;
+  }
+
   logger()->info("[{0}] Starting to update the {1} chain for {2} rules...",
                  parent_.get_name(),
                  ChainJsonObject::ChainNameEnum_to_string(name), rules_.size());
   // std::lock_guard<std::mutex> lkBpf(parent_.bpfInjectMutex);
   auto start = std::chrono::high_resolution_clock::now();
 
-  int index;
-  if (name == ChainNameEnum::INGRESS) {
-    index = 3 + (chainNumber * ModulesConstants::NR_MODULES);
-  } else {
-    index = 3 + chainNumber * ModulesConstants::NR_MODULES +
-            ModulesConstants::NR_MODULES * 2;
-  }
+  int index = 3 + (chainNumber * ModulesConstants::NR_MODULES);
 
   int startingIndex = index;
   Firewall::Program *firstProgramLoaded;
-  std::map<std::pair<uint8_t, ChainNameEnum>, Firewall::Program *>
-      newProgramsChain;
+  std::vector<Firewall::Program *> newProgramsChain(3 + ModulesConstants::NR_MODULES + 2);
   std::map<uint8_t, std::vector<uint64_t>> states;
   std::map<struct IpAddr, std::vector<uint64_t>> ips;
   std::map<uint16_t, std::vector<uint64_t>> ports;
   std::map<int, std::vector<uint64_t>> protocols;
   std::vector<std::vector<uint64_t>> flags;
 
-  auto rules = getRealRuleList();
-
   // Looping through conntrack
-  conntrack_from_rules_to_map(states, rules);
+  conntrack_from_rules_to_map(states, rules_);
   if (!states.empty()) {
     // At least one rule requires a matching on conntrack, so it can be
     // injected.
@@ -253,21 +224,16 @@ void Chain::updateChain() {
           "[{0}] Conntrack is not active, please remember to activate it.",
           parent_.getName());
     }
-    newProgramsChain.insert(
-        std::pair<std::pair<uint8_t, ChainNameEnum>, Firewall::Program *>(
-            std::make_pair(ModulesConstants::CONNTRACKMATCH, name),
-            new Firewall::ConntrackMatch(index, name, this->parent_)));
+    Firewall::ConntrackMatch *conntrack =
+      new Firewall::ConntrackMatch(index, name, this->parent_);
+    newProgramsChain[ModulesConstants::CONNTRACKMATCH] = conntrack;
     // Now the program is loaded, populate it.
-    dynamic_cast<Firewall::ConntrackMatch *>(
-        newProgramsChain[std::make_pair(ModulesConstants::CONNTRACKMATCH,
-                                        name)])
-        ->updateMap(states);
+    conntrack->updateMap(states);
 
     // This check is not really needed here, it will always be the first module
     // to be injected
     if (index == startingIndex) {
-      firstProgramLoaded = newProgramsChain[std::make_pair(
-          ModulesConstants::CONNTRACKMATCH, name)];
+      firstProgramLoaded = conntrack;
     }
     ++index;
   }
@@ -275,220 +241,177 @@ void Chain::updateChain() {
   // Done looping through conntrack
 
   // Looping through IP source
-  ip_from_rules_to_map(SOURCE_TYPE, ips, rules);
+  ip_from_rules_to_map(SOURCE_TYPE, ips, rules_);
   if (!ips.empty()) {
     // At least one rule requires a matching on ipsource, so inject
     // the module on the first available position
-    newProgramsChain.insert(
-        std::pair<std::pair<uint8_t, ChainNameEnum>, Firewall::Program *>(
-            std::make_pair(ModulesConstants::IPSOURCE, name),
-            new Firewall::IpLookup(index, name, SOURCE_TYPE, this->parent_)));
+    Firewall::IpLookup *iplookup =
+        new Firewall::IpLookup(index, name, SOURCE_TYPE, this->parent_);
+    newProgramsChain[ModulesConstants::IPSOURCE] = iplookup;
     // If this is the first module, adjust parsing to forward to it.
     if (index == startingIndex) {
-      firstProgramLoaded =
-          newProgramsChain[std::make_pair(ModulesConstants::IPSOURCE, name)];
+      firstProgramLoaded = iplookup;
     }
     ++index;
 
     // Now the program is loaded, populate it.
-    dynamic_cast<Firewall::IpLookup *>(
-        newProgramsChain[std::make_pair(ModulesConstants::IPSOURCE, name)])
-        ->updateMap(ips);
+    iplookup->updateMap(ips);
   }
   ips.clear();
   // Done looping through IP source
 
   // Looping through IP destination
-  ip_from_rules_to_map(DESTINATION_TYPE, ips, rules);
+  ip_from_rules_to_map(DESTINATION_TYPE, ips, rules_);
 
   if (!ips.empty()) {
-    // At least one rule requires a matching on source ip, so inject the
-    // module on the first available position
-    newProgramsChain.insert(
-        std::pair<std::pair<uint8_t, ChainNameEnum>, Firewall::Program *>(
-            std::make_pair(ModulesConstants::IPDESTINATION, name),
-            new Firewall::IpLookup(index, name, DESTINATION_TYPE,
-                                   this->parent_)));
+    // At least one rule requires a matching on ipdestination, so inject
+    // the module on the first available position
+    Firewall::IpLookup *iplookup =
+        new Firewall::IpLookup(index, name, DESTINATION_TYPE, this->parent_);
+    newProgramsChain[ModulesConstants::IPDESTINATION] = iplookup;
     // If this is the first module, adjust parsing to forward to it.
     if (index == startingIndex) {
-      firstProgramLoaded = newProgramsChain[std::make_pair(
-          ModulesConstants::IPDESTINATION, name)];
+      firstProgramLoaded = iplookup;
     }
     ++index;
 
     // Now the program is loaded, populate it.
-    dynamic_cast<Firewall::IpLookup *>(
-        newProgramsChain[std::make_pair(ModulesConstants::IPDESTINATION, name)])
-        ->updateMap(ips);
+    iplookup->updateMap(ips);
   }
   ips.clear();
   // Done looping through IP destination
 
   // Looping through l4 protocol
-  transportproto_from_rules_to_map(protocols, rules);
+  transportproto_from_rules_to_map(protocols, rules_);
 
   if (!protocols.empty()) {
     // At least one rule requires a matching on
     // source ports, so inject the module
     // on the first available position
-    newProgramsChain.insert(
-        std::pair<std::pair<uint8_t, ChainNameEnum>, Firewall::Program *>(
-            std::make_pair(ModulesConstants::L4PROTO, name),
-            new Firewall::L4ProtocolLookup(index, name, this->parent_)));
-
+    Firewall::L4ProtocolLookup *protocollookup =
+        new Firewall::L4ProtocolLookup(index, name, this->parent_);
+    newProgramsChain[ModulesConstants::L4PROTO] = protocollookup;
     // If this is the first module, adjust parsing to forward to it.
     if (index == startingIndex) {
-      firstProgramLoaded =
-          newProgramsChain[std::make_pair(ModulesConstants::L4PROTO, name)];
+      firstProgramLoaded = protocollookup;
     }
     ++index;
 
     // Now the program is loaded, populate it.
-    dynamic_cast<Firewall::L4ProtocolLookup *>(
-        newProgramsChain[std::make_pair(ModulesConstants::L4PROTO, name)])
-        ->updateMap(protocols);
+    protocollookup->updateMap(protocols);
   }
   protocols.clear();
   // Done looping through l4 protocol
 
   // Looping through source port
-  port_from_rules_to_map(SOURCE_TYPE, ports, rules);
+  port_from_rules_to_map(SOURCE_TYPE, ports, rules_);
 
   if (!ports.empty()) {
     // At least one rule requires a matching on  source ports,
     // so inject the  module  on the first available position
-    newProgramsChain.insert(
-        std::pair<std::pair<uint8_t, ChainNameEnum>, Firewall::Program *>(
-            std::make_pair(ModulesConstants::PORTSOURCE, name),
-            new Firewall::L4PortLookup(index, name, SOURCE_TYPE,
-                                       this->parent_)));
-
+    Firewall::L4PortLookup *portlookup =
+        new Firewall::L4PortLookup(index, name, SOURCE_TYPE, this->parent_);
+    newProgramsChain[ModulesConstants::PORTSOURCE] = portlookup;
     // If this is the first module, adjust parsing to forward to it.
     if (index == startingIndex) {
-      firstProgramLoaded =
-          newProgramsChain[std::make_pair(ModulesConstants::PORTSOURCE, name)];
+      firstProgramLoaded = portlookup;
     }
     ++index;
 
     // Now the program is loaded, populate it.
-    dynamic_cast<Firewall::L4PortLookup *>(
-        newProgramsChain[std::make_pair(ModulesConstants::PORTSOURCE, name)])
-        ->updateMap(ports);
+    portlookup->updateMap(ports);
   }
   ports.clear();
   // Done looping through source port
 
   // Looping through destination port
-  port_from_rules_to_map(DESTINATION_TYPE, ports, rules);
+  port_from_rules_to_map(DESTINATION_TYPE, ports, rules_);
 
   if (!ports.empty()) {
     // At least one rule requires a matching on source ports,
     // so inject the module  on the first available position
-    newProgramsChain.insert(
-        std::pair<std::pair<uint8_t, ChainNameEnum>, Firewall::Program *>(
-            std::make_pair(ModulesConstants::PORTDESTINATION, name),
-            new Firewall::L4PortLookup(index, name, DESTINATION_TYPE,
-                                       this->parent_)));
-    // If this is the first module, adjust
-    // parsing to forward to it.
+    Firewall::L4PortLookup *portlookup =
+        new Firewall::L4PortLookup(index, name, DESTINATION_TYPE, this->parent_);
+    newProgramsChain[ModulesConstants::PORTDESTINATION] = portlookup;
+    // If this is the first module, adjust parsing to forward to it.
     if (index == startingIndex) {
-      firstProgramLoaded = newProgramsChain[std::make_pair(
-          ModulesConstants::PORTDESTINATION, name)];
+      firstProgramLoaded = portlookup;
     }
     ++index;
 
     // Now the program is loaded, populate it.
-    dynamic_cast<Firewall::L4PortLookup *>(
-        newProgramsChain[std::make_pair(ModulesConstants::PORTDESTINATION,
-                                        name)])
-        ->updateMap(ports);
+    portlookup->updateMap(ports);
   }
   ports.clear();
   // Done looping through destination port
 
   // Looping through tcp flags
-  flags_from_rules_to_map(flags, rules);
+  flags_from_rules_to_map(flags, rules_);
 
   if (!flags.empty()) {
     // At least one rule requires a matching on flags,
     // so inject the  module in the first available position
-    newProgramsChain.insert(
-        std::pair<std::pair<uint8_t, ChainNameEnum>, Firewall::Program *>(
-            std::make_pair(ModulesConstants::TCPFLAGS, name),
-            new Firewall::TcpFlagsLookup(index, name, this->parent_)));
-
+    Firewall::TcpFlagsLookup *tcpflagslookup =
+        new Firewall::TcpFlagsLookup(index, name, this->parent_);
+    newProgramsChain[ModulesConstants::TCPFLAGS] = tcpflagslookup;
     // If this is the first module, adjust parsing to forward to it.
     if (index == startingIndex) {
-      firstProgramLoaded =
-          newProgramsChain[std::make_pair(ModulesConstants::TCPFLAGS, name)];
+      firstProgramLoaded = tcpflagslookup;
     }
     ++index;
 
     // Now the program is loaded, populate it.
-    dynamic_cast<Firewall::TcpFlagsLookup *>(
-        newProgramsChain[std::make_pair(ModulesConstants::TCPFLAGS, name)])
-        ->updateMap(flags);
+    tcpflagslookup->updateMap(flags);
   }
   flags.clear();
 
   // Done looping through tcp flags
 
   // Adding bitscan
-  newProgramsChain.insert(
-      std::pair<std::pair<uint8_t, ChainNameEnum>, Firewall::Program *>(
-          std::make_pair(ModulesConstants::BITSCAN, name),
-          new Firewall::BitScan(index, name, this->parent_)));
+  Firewall::BitScan *bitscan =
+      new Firewall::BitScan(index, name, this->parent_);
+  newProgramsChain[ModulesConstants::BITSCAN] = bitscan;
   // If this is the first module, adjust parsing to forward to it.
   if (index == startingIndex) {
-    firstProgramLoaded =
-        newProgramsChain[std::make_pair(ModulesConstants::BITSCAN, name)];
+    firstProgramLoaded = bitscan;
   }
   ++index;
 
   // Adding action taker
-  newProgramsChain.insert(
-      std::pair<std::pair<uint8_t, ChainNameEnum>, Firewall::Program *>(
-          std::make_pair(ModulesConstants::ACTION, name),
-          new Firewall::ActionLookup(index, name, this->parent_)));
-
-  for (auto rule : rules) {
-    dynamic_cast<Firewall::ActionLookup *>(
-        newProgramsChain[std::make_pair(ModulesConstants::ACTION, name)])
-        ->updateTableValue(rule->getId(),
-                           ChainRule::ActionEnum_to_int(rule->getAction()));
+  Firewall::ActionLookup *actionlookup =
+      new Firewall::ActionLookup(index, name, this->parent_);
+  newProgramsChain[ModulesConstants::ACTION] = actionlookup;
+  // If this is the first module, adjust parsing to forward to it.
+  if (index == startingIndex) {
+    firstProgramLoaded = actionlookup;
   }
-  // The new chain is ready. Instruct chainForwarder to switch to the new chain.
-  parent_
-      .programs[std::make_pair(ModulesConstants::CHAINFORWARDER,
-                               ChainNameEnum::INVALID)]
-      ->updateHop(1, firstProgramLoaded, name);
+  ++index;
 
-  parent_
-      .programs[std::make_pair(ModulesConstants::CHAINFORWARDER,
-                               ChainNameEnum::INVALID)]
-      ->reload();
+  for (auto &rule : rules_) {
+    actionlookup->updateTableValue(rule->getId(),
+        ChainRule::ActionEnum_to_int(rule->getAction()));
+  }
+
+  // The new chain is ready. Instruct chainForwarder to switch to the new chain.
+  auto &chainforwarder = programs->at(ModulesConstants::CHAINFORWARDER);
+  chainforwarder->updateHop(1, firstProgramLoaded, name);
+  chainforwarder->reload();
 
   // The parser has to be reloaded to account the new nmbr of elements
-  parent_
-      .programs[std::make_pair(ModulesConstants::PARSER,
-                               ChainNameEnum::INVALID)]
-      ->reload();
+  programs->at(ModulesConstants::PARSER)->reload();
 
   // Unload the programs belonging to the old chain.
-  for (auto it = parent_.programs.begin(); it != parent_.programs.end();) {
-    if (it->first.second == name) {
-      delete it->second;
-      it = parent_.programs.erase(it);
-    } else {
-      ++it;
+  for (int i = ModulesConstants::CONNTRACKMATCH;
+       i <= ModulesConstants::ACTION; i++) {
+    if (programs->at(i)) {
+      delete programs->at(i);
+      programs->at(i) = nullptr;
     }
   }
 
-  // Copy the new program references to the main map.
-  for (auto &program : newProgramsChain) {
-    parent_
-        .programs[std::make_pair(program.first.first, program.first.second)] =
-        program.second;
+  for (int i = ModulesConstants::CONNTRACKMATCH;
+       i <= ModulesConstants::ACTION; i++) {
+    programs->at(i) = newProgramsChain[i];
   }
 
   auto end = std::chrono::high_resolution_clock::now();
@@ -567,20 +490,20 @@ void Chain::delStatsList() {
 }
 
 std::shared_ptr<ChainRule> Chain::getRule(const uint32_t &id) {
-  if (rules_.size() < id || !rules_[id]) {
+  if (rules_.size() <= id || !rules_[id]) {
     throw std::runtime_error("There is no rule " + id);
   }
   return rules_[id];
 }
 
 std::vector<std::shared_ptr<ChainRule>> Chain::getRuleList() {
-  auto rules(getRealRuleList());
+  auto rules(rules_);
 
   // Adding a "stub" default rule
   ChainRuleJsonObject defaultRule;
   defaultRule.setAction(getDefault());
   defaultRule.setDescription("Default Policy");
-  defaultRule.setId(0);
+  defaultRule.setId(rules_.size());
 
   rules.push_back(
       std::shared_ptr<ChainRule>(new ChainRule(*this, defaultRule)));
@@ -589,6 +512,11 @@ std::vector<std::shared_ptr<ChainRule>> Chain::getRuleList() {
 }
 
 void Chain::addRule(const uint32_t &id, const ChainRuleJsonObject &conf) {
+
+  if (id > rules_.size()) {
+    throw std::runtime_error("rule id not allowed");
+  }
+
   auto newRule = std::make_shared<ChainRule>(*this, conf);
 
   // Forcing counters update
@@ -600,7 +528,7 @@ void Chain::addRule(const uint32_t &id, const ChainRuleJsonObject &conf) {
     throw new std::runtime_error("I won't be thrown");
 
   } else if (rules_.size() <= id && newRule != nullptr) {
-    rules_.resize(id + 1);
+    rules_.resize(rules_.size() + 1);
   }
   if (rules_[id]) {
     logger()->info("Rule {0} overwritten!", id);
@@ -620,14 +548,14 @@ void Chain::addRuleList(const std::vector<ChainRuleJsonObject> &conf) {
   }
 }
 
+// TODO check
 void Chain::replaceRule(const uint32_t &id, const ChainRuleJsonObject &conf) {
-  delRule(id);
   uint32_t id_ = conf.getId();
   addRule(id_, conf);
 }
 
 void Chain::delRule(const uint32_t &id) {
-  if (rules_.size() < id || !rules_[id]) {
+  if ((id >= rules_.size()) || (!rules_[id])) {
     throw std::runtime_error("There is no rule " + id);
   }
 
@@ -645,7 +573,7 @@ void Chain::delRule(const uint32_t &id) {
     counters_[i] = counters_[i + 1];
     counters_[i]->counter.setId(i);
   }
-  rules_.resize(counters_.size() - 1);
+  counters_.resize(counters_.size() - 1);
 
   if (parent_.interactive_) {
     applyRules();
@@ -658,4 +586,159 @@ void Chain::delRuleList() {
   if (parent_.interactive_) {
     applyRules();
   }
+}
+
+ChainInsertOutputJsonObject Chain::insert(ChainInsertInputJsonObject input) {
+  ChainRuleJsonObject conf;
+
+  if (input.conntrackIsSet()) {
+    conf.setConntrack(input.getConntrack());
+  }
+  if (input.srcIsSet()) {
+    conf.setSrc(input.getSrc());
+  }
+  if (input.dstIsSet()) {
+    conf.setDst(input.getDst());
+  }
+  if (input.sportIsSet()) {
+    conf.setSport(input.getSport());
+  }
+  if (input.dportIsSet()) {
+    conf.setDport(input.getDport());
+  }
+  if (input.tcpflagsIsSet()) {
+    conf.setTcpflags(input.getTcpflags());
+  }
+  if (input.l4protoIsSet()) {
+    conf.setL4proto(input.getL4proto());
+  }
+  if (input.actionIsSet()) {
+    conf.setAction(input.getAction());
+  } else {
+    conf.setAction(ActionEnum::DROP);
+  }
+
+  uint32_t id = 0;
+  if (input.idIsSet()) {
+    id = input.getId();
+  }
+
+  if (id > rules_.size()) {
+    throw std::runtime_error("id not allowed");
+  }
+
+  auto newRule = std::make_shared<ChainRule>(*this, conf);
+
+  ChainStatsJsonObject confStats;
+  auto newStats = std::make_shared<ChainStats>(*this, confStats);
+
+  getStatsList();
+
+  if (newRule == nullptr) {
+    // Totally useless, but it is needed to avoid the compiler making wrong
+    // assumptions and reordering
+    throw new std::runtime_error("I won't be thrown");
+
+  } else if (rules_.size() >= id && newRule != nullptr) {
+    rules_.resize(rules_.size() + 1);
+    counters_.resize(counters_.size() + 1);
+  }
+
+  // 0, 1, 2, 3
+  // insert @2
+  // 0, 1, 2*, 2->3, 3->4
+
+  // for rules before id
+  // nothing
+
+  // for rules starting from id to rules size-1
+  // move ahead i -> i+i
+  // btw, better to start from the end of the array
+  // for rules starting from size-1 to id
+  // move ahead i -> i+i
+
+  int i = 0;
+  int id_int = (int)id;
+
+  // ids are 0,1,2
+  // size=3
+  // id = 1 (insert)
+
+  // new size = 4
+
+  // from 1 to 2
+  // move 2->3
+  // move 1->2,
+  // replace 1
+
+  for (i = rules_.size() - 2; i >= id_int; i--) {
+    rules_[i + 1] = rules_[i];
+    counters_[i + 1] = counters_[i];
+    if (rules_[i + 1] != nullptr) {
+      rules_[i + 1]->id = i + 1;
+    }
+    if (counters_[i + 1] != nullptr) {
+      counters_[i + 1]->counter.setId(i + 1);
+    }
+  }
+
+  rules_[id] = newRule;
+  rules_[id]->id = id;
+
+  counters_[id] = newStats;
+  counters_[id]->counter.setPkts(0);
+  counters_[id]->counter.setBytes(0);
+  counters_[id]->counter.setId(id);
+
+  if (parent_.interactive_) {
+    updateChain();
+  }
+
+  // set fields for return object
+  ChainInsertOutputJsonObject result;
+  result.setId(id);
+
+  return result;
+}
+
+void Chain::deletes(ChainDeleteInputJsonObject input) {
+  ChainRuleJsonObject conf;
+
+  if (input.conntrackIsSet()) {
+    conf.setConntrack(input.getConntrack());
+  }
+  if (input.srcIsSet()) {
+    conf.setSrc(input.getSrc());
+  }
+  if (input.dstIsSet()) {
+    conf.setDst(input.getDst());
+  }
+  if (input.sportIsSet()) {
+    conf.setSport(input.getSport());
+  }
+  if (input.dportIsSet()) {
+    conf.setDport(input.getDport());
+  }
+  if (input.tcpflagsIsSet()) {
+    conf.setTcpflags(input.getTcpflags());
+  }
+  if (input.l4protoIsSet()) {
+    conf.setL4proto(input.getL4proto());
+  }
+  if (input.actionIsSet()) {
+    conf.setAction(input.getAction());
+  } else {
+    conf.setAction(ActionEnum::DROP);
+  }
+
+  for (int i = 0; i < rules_.size(); i++) {
+    if (rules_[i] != nullptr) {
+      ChainRule c(*this, conf);
+      if (rules_[i]->equal(c)) {
+        delRule(i);
+        return;
+      }
+    }
+  }
+  throw std::runtime_error("no matching rule to delete");
 }

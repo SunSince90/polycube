@@ -44,15 +44,19 @@ enum class ATTACH_MODE {
   EGRESS,
 };
 
+enum class IFACE_STATUS {
+  UP,
+  DOWN,
+};
+
 class Observer;  // a passible subscriber callback class
 
 class Netlink {
  public:
-  Netlink();
   ~Netlink();
 
   // TODO: Add here new events needed for the future
-  enum Event { LINK_DELETED, ALL };
+  enum Event { LINK_ADDED, LINK_DELETED, ROUTE_ADDED, ROUTE_DELETED, NEW_ADDRESS, ALL };
   // enum Event { LINK_DELETED };
   static Netlink &getInstance() {
     static Netlink instance;
@@ -72,6 +76,11 @@ class Netlink {
   int get_iface_index(const std::string &iface);
 
   std::map<std::string, ExtIfaceInfo> get_available_ifaces();
+
+  void set_iface_status(const std::string &iface, IFACE_STATUS status);
+  void set_iface_mac(const std::string &iface, const std::string &mac);
+  void set_iface_ip(const std::string &iface, const std::string &ip, int prefix);
+  void move_iface_into_ns(const std::string &iface, int fd);
 
   template <typename Observer>
   int registerObserver(const Event &event, Observer &&observer) {
@@ -103,8 +112,17 @@ class Netlink {
   }
 
  private:
+  Netlink();
   void notify_link_deleted(int ifindex, const std::string &iface);
+  void notify_link_added(int ifindex, const std::string &iface);
+  void notify_route_added(int ifindex, const std::string &info_route);
+  void notify_route_deleted(int ifindex, const std::string &info_route);
+  void notify_new_address(int ifindex, const std::string &info_address);
   void notify_all(int ifindex, const std::string &iface);
+
+  struct nlmsghdr* netlink_alloc();
+  struct nlmsghdr* netlink_ip_alloc();
+  int netlink_nl_send(struct nlmsghdr *nlmsg);
 
   std::shared_ptr<spdlog::logger> logger;
   std::mutex notify_mutex;

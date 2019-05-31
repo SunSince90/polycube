@@ -19,8 +19,8 @@
 
 #include "config.h"
 #include "cube_factory_impl.h"
-#include "netlink.h"
 #include "port_xdp.h"
+#include "utils/netlink.h"
 
 #include <regex>
 
@@ -282,6 +282,33 @@ bool ServiceController::parse_peer_name(const std::string &peer,
   port = match[2];
 
   return true;
+}
+
+/*
+ * This function in on charge of setting the peer of ports
+ * connected to netdevs when they are removed.
+ * This function also removes the ExtIface object if this is
+ * not already removed.
+ */
+void ServiceController::netlink_notification(int ifindex,
+                                             const std::string &ifname) {
+  std::lock_guard<std::mutex> guard(service_ctrl_mutex_);
+  if (ports_to_ifaces.count(ifname) == 0) {
+    return; // nothing to do here
+  }
+
+  auto iface = ports_to_ifaces.at(ifname);
+
+  auto peer = iface->get_peer_iface();
+  if (peer) {
+    auto port = dynamic_cast<Port*>(peer);
+    if (port) {
+      port->set_peer("");
+    }
+  }
+
+  // try to remove it if existed
+  ports_to_ifaces.erase(ifname);
 }
 
 }  // namespace polycubed

@@ -17,11 +17,10 @@
 #include "extiface.h"
 #include "bcc_mutex.h"
 #include "exceptions.h"
-#include "netlink.h"
+#include "extiface_tc.h"
 #include "patchpanel.h"
 #include "port.h"
-
-#include "extiface_tc.h"
+#include "utils/netlink.h"
 
 #include <iostream>
 
@@ -249,6 +248,10 @@ int ExtIface::calculate_cube_index(int index) {
 bool ExtIface::is_used() const {
   std::lock_guard<std::mutex> guard(iface_mutex_);
   return cubes_.size() > 0 || peer_ != nullptr;
+}
+
+std::string ExtIface::get_iface_name() const {
+  return iface_;
 }
 
 }  // namespace polycubed
