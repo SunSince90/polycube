@@ -36,7 +36,6 @@ import (
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
 
-	k8sfirewall "github.com/SunSince90/polycube/src/components/k8s/utils/k8sfirewall"
 	k8switch "github.com/polycube-network/polycube/src/components/k8s/utils/k8switch"
 
 	log "github.com/sirupsen/logrus"
@@ -61,7 +60,6 @@ const (
 
 var (
 	k8switchAPI *k8switch.K8switchApiService
-	fwAPI       *k8sfirewall.FirewallApiService
 )
 
 func init() {
@@ -75,11 +73,6 @@ func init() {
 	cfgK8switch := k8switch.Configuration{BasePath: basePath}
 	srK8switch := k8switch.NewAPIClient(&cfgK8switch)
 	k8switchAPI = srK8switch.K8switchApi
-
-	//	for firewall creation
-	cfgK8firewall := k8sfirewall.Configuration{BasePath: basePath}
-	srK8firewall := k8sfirewall.NewAPIClient(&cfgK8firewall)
-	fwAPI = srK8firewall.FirewallApi
 }
 
 func loadNetConf(bytes []byte) (*NetConf, string, error) {
@@ -206,12 +199,9 @@ func cmdAdd(args *skel.CmdArgs) error {
 
 	// create port on k8switch
 	portName := args.ContainerID[0:10] // take just first digits of the id
-	k8switchPort := k8switch.Ports{Name: portName}
+	k8switchPort := k8switch.Ports{Name: portName, Peer: hostInterface.Name}
 	if _, err := k8switchAPI.CreateK8switchPortsByID("k8switch0", portName, k8switchPort); err != nil {
 		return fmt.Errorf("Error creating port in k8switch: %s", err)
-	}
-	if err = createFirewallInBetween(hostInterface.Name, portName, ip.String()); err != nil {
-		log.Errorln("Could not create the firewall!")
 	}
 
 	var mac net.HardwareAddr
@@ -316,101 +306,8 @@ func cmdAdd(args *skel.CmdArgs) error {
 		return err
 	}
 
-	if err = createFirewallInBetween(hostInterface.Name, portName, ip.String()); err != nil {
-		//if err = createFirewallInBetween(containerInterface.Name, portName, ip.String()); err != nil {
-		log.Error("Could not create the firewall!")
-	}
-
 	success = true
 	return types.PrintResult(result, cniVersion)
-}
-
-func createFirewallInBetween(containerPort, switchPort, ip string) error {
-	//	At this point we don't have the UUID of the pod.
-	//	So, the only way we have to create the firewall and to be able to reference it later, is by using its IP.
-	//	So its name will be fw-ip
-	name := "fw-" + ip
-
-	fw, _, err := fwAPI.ReadFirewallByID(nil, name)
-	if err != nil {
-		//	First create the firewall
-		if response, err := fwAPI.CreateFirewallByID(nil, name, k8sfirewall.Firewall{
-			Name: name,
-		}); err != nil {
-			log.Errorln("An error occurred while trying to create firewall with name:", name, err, response)
-			return err
-		}
-
-		if err := connectFirewall(name, containerPort, switchPort); err != nil {
-			//	error is already shown in function
-		}
-
-		if response, err := fwAPI.UpdateFirewallChainDefaultByID(nil, name, "ingress", "forward"); err != nil {
-			log.Errorln("Could not set default ingress action to forward for firewall", name, ":", err, response)
-		}
-
-		if response, err := fwAPI.UpdateFirewallChainDefaultByID(nil, name, "egress", "forward"); err != nil {
-			log.Errorln("Could not set default egress action to forward for firewall", name, ":", err, response)
-		}
-
-		if response, err := fwAPI.UpdateFirewallInteractiveByID(nil, name, false); err != nil {
-			log.Errorf("Could not set interactive to false on firewall %s: %+v, %s\n", name, response, err)
-		}
-
-	} else {
-		log.Debugf("the firewall %s already existed %+v\n", fw)
-
-		//	Check if ports are set
-		//	This is redone here because sometimes it fails to create the ports in the previous section.
-		ports, response, err := fwAPI.ReadFirewallPortsListByID(nil, name)
-		if err != nil {
-			log.Errorf("Could not read ports for firewall %s: %s, %+v\n", name, err, response)
-			return err
-		}
-
-		if len(ports) < 1 {
-			log.Warningf("firewall %s had no ports! Trying to set them now", name)
-			if err := connectFirewall(name, containerPort, switchPort); err != nil {
-				//	error is already shown in function
-			}
-		}
-	}
-
-	log.Debugln("Container port:", containerPort)
-	log.Debugln("Switch port:", switchPort)
-	log.Debugln("ip port:", ip)
-
-	return nil
-}
-
-func connectFirewall(name, containerPort, switchPort string) error {
-	//	Now create the ports
-	//	Connect the firewall with the switch
-	if response, err := fwAPI.CreateFirewallPortsByID(nil, name, "ingress-p", k8sfirewall.Ports{
-		Name: "ingress-p",
-		Peer: "k8switch0:" + switchPort,
-	}); err != nil {
-		log.Errorln("An error occurred while trying to create ports for firewall:", name, switchPort, err, response)
-		return err
-	}
-
-	//	Link k8switch with firewall
-	if response, err := k8switchAPI.UpdateK8switchPortsPeerByID("k8switch0", switchPort, name+":ingress-p"); err != nil {
-		log.Errorln("could link switch with firewall:", err, response)
-		return err
-	}
-	log.Debugln("Successfully linked switch with firewall.")
-
-	//	Connect the firewall with the pod
-	if response, err := fwAPI.CreateFirewallPortsByID(nil, name, "egress-p", k8sfirewall.Ports{
-		Name: "egress-p",
-		Peer: containerPort,
-	}); err != nil {
-		log.Errorln("An error occurred while trying to create ports for firewall:", name, containerPort, err, response)
-		return err
-	}
-
-	return nil
 }
 
 func cmdDel(args *skel.CmdArgs) error {

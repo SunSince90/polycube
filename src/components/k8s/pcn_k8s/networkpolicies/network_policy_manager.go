@@ -38,8 +38,10 @@ type NetworkPolicyManager struct {
 	log *log.Logger
 	// fwAPI is the firewall API
 	fwAPI k8sfirewall.FirewallAPI
-	// node is the name of the node in which we are running
-	node string
+	// node is the node in which we are running
+	node *core_v1.Node
+	// nodeName is the name of the node in which we are running
+	nodeName string
 	// lock is the main lock used in the manager
 	lock sync.Mutex
 	//	localFirewalls is a map of the firewall managers inside this node.
@@ -60,7 +62,7 @@ type NetworkPolicyManager struct {
 var startFirewall = pcn_firewall.StartFirewall
 
 // StartNetworkPolicyManager will start a new network policy manager. This is supposed to be a singleton.
-func StartNetworkPolicyManager(basePath string, dnpc *pcn_controllers.DefaultNetworkPolicyController, podController pcn_controllers.PodController, nodeName string) PcnNetworkPolicyManager {
+func StartNetworkPolicyManager(basePath string, dnpc *pcn_controllers.DefaultNetworkPolicyController, podController pcn_controllers.PodController, node *core_v1.Node) PcnNetworkPolicyManager {
 	l := log.NewEntry(log.New())
 	l.WithFields(log.Fields{"by": PM, "method": "StartNetworkPolicyManager()"})
 	l.Infoln("Starting Network Policy Manager")
@@ -69,10 +71,13 @@ func StartNetworkPolicyManager(basePath string, dnpc *pcn_controllers.DefaultNet
 	srK8firewall := k8sfirewall.NewAPIClient(&cfgK8firewall)
 	fwAPI := srK8firewall.FirewallApi
 
+	nodeName := node.Name
+
 	manager := NetworkPolicyManager{
 		dnpc:                dnpc,
 		podController:       podController,
-		node:                nodeName,
+		node:                node,
+		nodeName:            node.Name,
 		localFirewalls:      map[string]pcn_firewall.PcnFirewall{},
 		unscheduleThreshold: UnscheduleThreshold,
 		flaggedForDeletion:  map[string]*time.Timer{},
@@ -251,7 +256,7 @@ func (manager *NetworkPolicyManager) deployK8sPolicyToFw(policy *networking_v1.N
 	podsWaitGroup.Wait()
 
 	//	Actually enforce the policy
-	fw.EnforcePolicy(policy.Name, policyType, parsed.Ingress, parsed.Egress, fwActions)
+	fw.EnforcePolicy(policy.Name, policyType, policy.CreationTimestamp, parsed.Ingress, parsed.Egress, fwActions)
 }
 
 // implode creates a key in the format of namespace_name|key1=value1;key2=value2;.
@@ -376,7 +381,7 @@ func (manager *NetworkPolicyManager) getOrCreateFirewallManager(pod *core_v1.Pod
 	//-------------------------------------
 	fw, exists := manager.localFirewalls[fwKey]
 	if !exists {
-		manager.localFirewalls[fwKey] = startFirewall(manager.fwAPI, manager.podController, fwKey, pod.Namespace, pod.Labels)
+		manager.localFirewalls[fwKey] = startFirewall(manager.fwAPI, manager.podController, fwKey, pod.Namespace, pod.Labels, manager.node)
 		fw = manager.localFirewalls[fwKey]
 		return fw, true
 	}
