@@ -86,6 +86,7 @@ type FirewallManager struct {
 	priorities []policyPriority
 }
 
+// policyPriority is the priority of this policy: most recently deployed policies take precedence over the older ones.
 type policyPriority struct {
 	policyName string
 	timestamp  time.Time
@@ -105,7 +106,7 @@ type subscriptions struct {
 	unsubscriptors []func()
 }
 
-// selector is the
+// selector is the selector for the pods this firewall manager is managing
 type selector struct {
 	namespace string
 	labels    map[string]string

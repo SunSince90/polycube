@@ -8,19 +8,17 @@ Method | HTTP request | Description
 [**CreateFirewallChainAppendByID**](FirewallApi.md#CreateFirewallChainAppendByID) | **Post** /firewall/{name}/chain/{chain_name}/append/ | Create append by ID
 [**CreateFirewallChainApplyRulesByID**](FirewallApi.md#CreateFirewallChainApplyRulesByID) | **Post** /firewall/{name}/chain/{chain_name}/apply-rules/ | Create apply-rules by ID
 [**CreateFirewallChainByID**](FirewallApi.md#CreateFirewallChainByID) | **Post** /firewall/{name}/chain/{chain_name}/ | Create chain by ID
+[**CreateFirewallChainDeleteByID**](FirewallApi.md#CreateFirewallChainDeleteByID) | **Post** /firewall/{name}/chain/{chain_name}/delete/ | Create delete by ID
+[**CreateFirewallChainInsertByID**](FirewallApi.md#CreateFirewallChainInsertByID) | **Post** /firewall/{name}/chain/{chain_name}/insert/ | Create insert by ID
 [**CreateFirewallChainListByID**](FirewallApi.md#CreateFirewallChainListByID) | **Post** /firewall/{name}/chain/ | Create chain by ID
 [**CreateFirewallChainResetCountersByID**](FirewallApi.md#CreateFirewallChainResetCountersByID) | **Post** /firewall/{name}/chain/{chain_name}/reset-counters/ | Create reset-counters by ID
 [**CreateFirewallChainRuleByID**](FirewallApi.md#CreateFirewallChainRuleByID) | **Post** /firewall/{name}/chain/{chain_name}/rule/{id}/ | Create rule by ID
 [**CreateFirewallChainRuleListByID**](FirewallApi.md#CreateFirewallChainRuleListByID) | **Post** /firewall/{name}/chain/{chain_name}/rule/ | Create rule by ID
-[**CreateFirewallPortsByID**](FirewallApi.md#CreateFirewallPortsByID) | **Post** /firewall/{name}/ports/{ports_name}/ | Create ports by ID
-[**CreateFirewallPortsListByID**](FirewallApi.md#CreateFirewallPortsListByID) | **Post** /firewall/{name}/ports/ | Create ports by ID
 [**DeleteFirewallByID**](FirewallApi.md#DeleteFirewallByID) | **Delete** /firewall/{name}/ | Delete firewall by ID
 [**DeleteFirewallChainByID**](FirewallApi.md#DeleteFirewallChainByID) | **Delete** /firewall/{name}/chain/{chain_name}/ | Delete chain by ID
 [**DeleteFirewallChainListByID**](FirewallApi.md#DeleteFirewallChainListByID) | **Delete** /firewall/{name}/chain/ | Delete chain by ID
 [**DeleteFirewallChainRuleByID**](FirewallApi.md#DeleteFirewallChainRuleByID) | **Delete** /firewall/{name}/chain/{chain_name}/rule/{id}/ | Delete rule by ID
 [**DeleteFirewallChainRuleListByID**](FirewallApi.md#DeleteFirewallChainRuleListByID) | **Delete** /firewall/{name}/chain/{chain_name}/rule/ | Delete rule by ID
-[**DeleteFirewallPortsByID**](FirewallApi.md#DeleteFirewallPortsByID) | **Delete** /firewall/{name}/ports/{ports_name}/ | Delete ports by ID
-[**DeleteFirewallPortsListByID**](FirewallApi.md#DeleteFirewallPortsListByID) | **Delete** /firewall/{name}/ports/ | Delete ports by ID
 [**ReadFirewallAcceptEstablishedByID**](FirewallApi.md#ReadFirewallAcceptEstablishedByID) | **Get** /firewall/{name}/accept-established/ | Read accept-established by ID
 [**ReadFirewallByID**](FirewallApi.md#ReadFirewallByID) | **Get** /firewall/{name}/ | Read firewall by ID
 [**ReadFirewallChainByID**](FirewallApi.md#ReadFirewallChainByID) | **Get** /firewall/{name}/chain/{chain_name}/ | Read chain by ID
@@ -51,16 +49,10 @@ Method | HTTP request | Description
 [**ReadFirewallChainStatsSrcByID**](FirewallApi.md#ReadFirewallChainStatsSrcByID) | **Get** /firewall/{name}/chain/{chain_name}/stats/{id}/src/ | Read src by ID
 [**ReadFirewallChainStatsTcpflagsByID**](FirewallApi.md#ReadFirewallChainStatsTcpflagsByID) | **Get** /firewall/{name}/chain/{chain_name}/stats/{id}/tcpflags/ | Read tcpflags by ID
 [**ReadFirewallConntrackByID**](FirewallApi.md#ReadFirewallConntrackByID) | **Get** /firewall/{name}/conntrack/ | Read conntrack by ID
-[**ReadFirewallEgressPortByID**](FirewallApi.md#ReadFirewallEgressPortByID) | **Get** /firewall/{name}/egress-port/ | Read egress-port by ID
-[**ReadFirewallIngressPortByID**](FirewallApi.md#ReadFirewallIngressPortByID) | **Get** /firewall/{name}/ingress-port/ | Read ingress-port by ID
 [**ReadFirewallInteractiveByID**](FirewallApi.md#ReadFirewallInteractiveByID) | **Get** /firewall/{name}/interactive/ | Read interactive by ID
 [**ReadFirewallListByID**](FirewallApi.md#ReadFirewallListByID) | **Get** /firewall/ | Read firewall by ID
 [**ReadFirewallLoglevelByID**](FirewallApi.md#ReadFirewallLoglevelByID) | **Get** /firewall/{name}/loglevel/ | Read loglevel by ID
-[**ReadFirewallPortsByID**](FirewallApi.md#ReadFirewallPortsByID) | **Get** /firewall/{name}/ports/{ports_name}/ | Read ports by ID
-[**ReadFirewallPortsListByID**](FirewallApi.md#ReadFirewallPortsListByID) | **Get** /firewall/{name}/ports/ | Read ports by ID
-[**ReadFirewallPortsPeerByID**](FirewallApi.md#ReadFirewallPortsPeerByID) | **Get** /firewall/{name}/ports/{ports_name}/peer/ | Read peer by ID
-[**ReadFirewallPortsStatusByID**](FirewallApi.md#ReadFirewallPortsStatusByID) | **Get** /firewall/{name}/ports/{ports_name}/status/ | Read status by ID
-[**ReadFirewallPortsUuidByID**](FirewallApi.md#ReadFirewallPortsUuidByID) | **Get** /firewall/{name}/ports/{ports_name}/uuid/ | Read uuid by ID
+[**ReadFirewallServiceNameByID**](FirewallApi.md#ReadFirewallServiceNameByID) | **Get** /firewall/{name}/service-name/ | Read service-name by ID
 [**ReadFirewallSessionTableByID**](FirewallApi.md#ReadFirewallSessionTableByID) | **Get** /firewall/{name}/session-table/{src}/{dst}/{l4proto}/{sport}/{dport}/ | Read session-table by ID
 [**ReadFirewallSessionTableEtaByID**](FirewallApi.md#ReadFirewallSessionTableEtaByID) | **Get** /firewall/{name}/session-table/{src}/{dst}/{l4proto}/{sport}/{dport}/eta/ | Read eta by ID
 [**ReadFirewallSessionTableListByID**](FirewallApi.md#ReadFirewallSessionTableListByID) | **Get** /firewall/{name}/session-table/ | Read session-table by ID
@@ -72,8 +64,6 @@ Method | HTTP request | Description
 [**ReplaceFirewallChainListByID**](FirewallApi.md#ReplaceFirewallChainListByID) | **Put** /firewall/{name}/chain/ | Replace chain by ID
 [**ReplaceFirewallChainRuleByID**](FirewallApi.md#ReplaceFirewallChainRuleByID) | **Put** /firewall/{name}/chain/{chain_name}/rule/{id}/ | Replace rule by ID
 [**ReplaceFirewallChainRuleListByID**](FirewallApi.md#ReplaceFirewallChainRuleListByID) | **Put** /firewall/{name}/chain/{chain_name}/rule/ | Replace rule by ID
-[**ReplaceFirewallPortsByID**](FirewallApi.md#ReplaceFirewallPortsByID) | **Put** /firewall/{name}/ports/{ports_name}/ | Replace ports by ID
-[**ReplaceFirewallPortsListByID**](FirewallApi.md#ReplaceFirewallPortsListByID) | **Put** /firewall/{name}/ports/ | Replace ports by ID
 [**UpdateFirewallAcceptEstablishedByID**](FirewallApi.md#UpdateFirewallAcceptEstablishedByID) | **Patch** /firewall/{name}/accept-established/ | Update accept-established by ID
 [**UpdateFirewallByID**](FirewallApi.md#UpdateFirewallByID) | **Patch** /firewall/{name}/ | Update firewall by ID
 [**UpdateFirewallChainByID**](FirewallApi.md#UpdateFirewallChainByID) | **Patch** /firewall/{name}/chain/{chain_name}/ | Update chain by ID
@@ -82,14 +72,9 @@ Method | HTTP request | Description
 [**UpdateFirewallChainRuleByID**](FirewallApi.md#UpdateFirewallChainRuleByID) | **Patch** /firewall/{name}/chain/{chain_name}/rule/{id}/ | Update rule by ID
 [**UpdateFirewallChainRuleListByID**](FirewallApi.md#UpdateFirewallChainRuleListByID) | **Patch** /firewall/{name}/chain/{chain_name}/rule/ | Update rule by ID
 [**UpdateFirewallConntrackByID**](FirewallApi.md#UpdateFirewallConntrackByID) | **Patch** /firewall/{name}/conntrack/ | Update conntrack by ID
-[**UpdateFirewallEgressPortByID**](FirewallApi.md#UpdateFirewallEgressPortByID) | **Patch** /firewall/{name}/egress-port/ | Update egress-port by ID
-[**UpdateFirewallIngressPortByID**](FirewallApi.md#UpdateFirewallIngressPortByID) | **Patch** /firewall/{name}/ingress-port/ | Update ingress-port by ID
 [**UpdateFirewallInteractiveByID**](FirewallApi.md#UpdateFirewallInteractiveByID) | **Patch** /firewall/{name}/interactive/ | Update interactive by ID
 [**UpdateFirewallListByID**](FirewallApi.md#UpdateFirewallListByID) | **Patch** /firewall/ | Update firewall by ID
 [**UpdateFirewallLoglevelByID**](FirewallApi.md#UpdateFirewallLoglevelByID) | **Patch** /firewall/{name}/loglevel/ | Update loglevel by ID
-[**UpdateFirewallPortsByID**](FirewallApi.md#UpdateFirewallPortsByID) | **Patch** /firewall/{name}/ports/{ports_name}/ | Update ports by ID
-[**UpdateFirewallPortsListByID**](FirewallApi.md#UpdateFirewallPortsListByID) | **Patch** /firewall/{name}/ports/ | Update ports by ID
-[**UpdateFirewallPortsPeerByID**](FirewallApi.md#UpdateFirewallPortsPeerByID) | **Patch** /firewall/{name}/ports/{ports_name}/peer/ | Update peer by ID
 
 
 # **CreateFirewallByID**
@@ -102,7 +87,7 @@ Create operation of resource: firewall
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **firewall** | [**Firewall**](Firewall.md)| firewallbody object | 
 
@@ -131,7 +116,7 @@ Create operation of resource: append
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chainName** | **string**| ID of chain_name | 
   **append** | [**ChainAppendInput**](ChainAppendInput.md)| appendbody object | 
@@ -161,7 +146,7 @@ Create operation of resource: apply-rules
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chainName** | **string**| ID of chain_name | 
 
@@ -190,7 +175,7 @@ Create operation of resource: chain
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chainName** | **string**| ID of chain_name | 
   **chain** | [**Chain**](Chain.md)| chainbody object | 
@@ -198,6 +183,66 @@ Name | Type | Description  | Notes
 ### Return type
 
  (empty response body)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: application/json
+ - **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# **CreateFirewallChainDeleteByID**
+> CreateFirewallChainDeleteByID(ctx, name, chainName, delete)
+Create delete by ID
+
+Create operation of resource: delete
+
+### Required Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
+  **name** | **string**| ID of name | 
+  **chainName** | **string**| ID of chain_name | 
+  **delete** | [**ChainDeleteInput**](ChainDeleteInput.md)| deletebody object | 
+
+### Return type
+
+ (empty response body)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: application/json
+ - **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# **CreateFirewallChainInsertByID**
+> ChainInsertOutput CreateFirewallChainInsertByID(ctx, name, chainName, insert)
+Create insert by ID
+
+Create operation of resource: insert
+
+### Required Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
+  **name** | **string**| ID of name | 
+  **chainName** | **string**| ID of chain_name | 
+  **insert** | [**ChainInsertInput**](ChainInsertInput.md)| insertbody object | 
+
+### Return type
+
+[**ChainInsertOutput**](ChainInsertOutput.md)
 
 ### Authorization
 
@@ -220,7 +265,7 @@ Create operation of resource: chain
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chain** | [**[]Chain**](Chain.md)| chainbody object | 
 
@@ -249,7 +294,7 @@ Create operation of resource: reset-counters
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chainName** | **string**| ID of chain_name | 
 
@@ -278,7 +323,7 @@ Create operation of resource: rule
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chainName** | **string**| ID of chain_name | 
   **id** | **int32**| ID of id | 
@@ -309,69 +354,10 @@ Create operation of resource: rule
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chainName** | **string**| ID of chain_name | 
   **rule** | [**[]ChainRule**](ChainRule.md)| rulebody object | 
-
-### Return type
-
- (empty response body)
-
-### Authorization
-
-No authorization required
-
-### HTTP request headers
-
- - **Content-Type**: application/json
- - **Accept**: application/json
-
-[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
-
-# **CreateFirewallPortsByID**
-> CreateFirewallPortsByID(ctx, name, portsName, ports)
-Create ports by ID
-
-Create operation of resource: ports
-
-### Required Parameters
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
-  **name** | **string**| ID of name | 
-  **portsName** | **string**| ID of ports_name | 
-  **ports** | [**Ports**](Ports.md)| portsbody object | 
-
-### Return type
-
- (empty response body)
-
-### Authorization
-
-No authorization required
-
-### HTTP request headers
-
- - **Content-Type**: application/json
- - **Accept**: application/json
-
-[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
-
-# **CreateFirewallPortsListByID**
-> CreateFirewallPortsListByID(ctx, name, ports)
-Create ports by ID
-
-Create operation of resource: ports
-
-### Required Parameters
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
-  **name** | **string**| ID of name | 
-  **ports** | [**[]Ports**](Ports.md)| portsbody object | 
 
 ### Return type
 
@@ -398,7 +384,7 @@ Delete operation of resource: firewall
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
 
 ### Return type
@@ -426,7 +412,7 @@ Delete operation of resource: chain
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chainName** | **string**| ID of chain_name | 
 
@@ -455,7 +441,7 @@ Delete operation of resource: chain
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
 
 ### Return type
@@ -483,7 +469,7 @@ Delete operation of resource: rule
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chainName** | **string**| ID of chain_name | 
   **id** | **int32**| ID of id | 
@@ -513,66 +499,9 @@ Delete operation of resource: rule
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chainName** | **string**| ID of chain_name | 
-
-### Return type
-
- (empty response body)
-
-### Authorization
-
-No authorization required
-
-### HTTP request headers
-
- - **Content-Type**: application/json
- - **Accept**: application/json
-
-[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
-
-# **DeleteFirewallPortsByID**
-> DeleteFirewallPortsByID(ctx, name, portsName)
-Delete ports by ID
-
-Delete operation of resource: ports
-
-### Required Parameters
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
-  **name** | **string**| ID of name | 
-  **portsName** | **string**| ID of ports_name | 
-
-### Return type
-
- (empty response body)
-
-### Authorization
-
-No authorization required
-
-### HTTP request headers
-
- - **Content-Type**: application/json
- - **Accept**: application/json
-
-[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
-
-# **DeleteFirewallPortsListByID**
-> DeleteFirewallPortsListByID(ctx, name)
-Delete ports by ID
-
-Delete operation of resource: ports
-
-### Required Parameters
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
-  **name** | **string**| ID of name | 
 
 ### Return type
 
@@ -599,7 +528,7 @@ Read operation of resource: accept-established
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
 
 ### Return type
@@ -627,7 +556,7 @@ Read operation of resource: firewall
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
 
 ### Return type
@@ -655,7 +584,7 @@ Read operation of resource: chain
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chainName** | **string**| ID of chain_name | 
 
@@ -684,7 +613,7 @@ Read operation of resource: default
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chainName** | **string**| ID of chain_name | 
 
@@ -713,7 +642,7 @@ Read operation of resource: chain
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
 
 ### Return type
@@ -741,7 +670,7 @@ Read operation of resource: action
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chainName** | **string**| ID of chain_name | 
   **id** | **int32**| ID of id | 
@@ -771,7 +700,7 @@ Read operation of resource: rule
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chainName** | **string**| ID of chain_name | 
   **id** | **int32**| ID of id | 
@@ -801,7 +730,7 @@ Read operation of resource: conntrack
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chainName** | **string**| ID of chain_name | 
   **id** | **int32**| ID of id | 
@@ -831,7 +760,7 @@ Read operation of resource: description
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chainName** | **string**| ID of chain_name | 
   **id** | **int32**| ID of id | 
@@ -861,7 +790,7 @@ Read operation of resource: dport
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chainName** | **string**| ID of chain_name | 
   **id** | **int32**| ID of id | 
@@ -891,7 +820,7 @@ Read operation of resource: dst
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chainName** | **string**| ID of chain_name | 
   **id** | **int32**| ID of id | 
@@ -921,7 +850,7 @@ Read operation of resource: l4proto
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chainName** | **string**| ID of chain_name | 
   **id** | **int32**| ID of id | 
@@ -951,7 +880,7 @@ Read operation of resource: rule
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chainName** | **string**| ID of chain_name | 
 
@@ -980,7 +909,7 @@ Read operation of resource: sport
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chainName** | **string**| ID of chain_name | 
   **id** | **int32**| ID of id | 
@@ -1010,7 +939,7 @@ Read operation of resource: src
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chainName** | **string**| ID of chain_name | 
   **id** | **int32**| ID of id | 
@@ -1040,7 +969,7 @@ Read operation of resource: tcpflags
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chainName** | **string**| ID of chain_name | 
   **id** | **int32**| ID of id | 
@@ -1070,7 +999,7 @@ Read operation of resource: action
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chainName** | **string**| ID of chain_name | 
   **id** | **int32**| ID of id | 
@@ -1100,7 +1029,7 @@ Read operation of resource: stats
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chainName** | **string**| ID of chain_name | 
   **id** | **int32**| ID of id | 
@@ -1130,7 +1059,7 @@ Read operation of resource: bytes
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chainName** | **string**| ID of chain_name | 
   **id** | **int32**| ID of id | 
@@ -1160,7 +1089,7 @@ Read operation of resource: conntrack
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chainName** | **string**| ID of chain_name | 
   **id** | **int32**| ID of id | 
@@ -1190,7 +1119,7 @@ Read operation of resource: description
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chainName** | **string**| ID of chain_name | 
   **id** | **int32**| ID of id | 
@@ -1220,7 +1149,7 @@ Read operation of resource: dport
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chainName** | **string**| ID of chain_name | 
   **id** | **int32**| ID of id | 
@@ -1250,7 +1179,7 @@ Read operation of resource: dst
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chainName** | **string**| ID of chain_name | 
   **id** | **int32**| ID of id | 
@@ -1280,7 +1209,7 @@ Read operation of resource: l4proto
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chainName** | **string**| ID of chain_name | 
   **id** | **int32**| ID of id | 
@@ -1310,7 +1239,7 @@ Read operation of resource: stats
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chainName** | **string**| ID of chain_name | 
 
@@ -1339,7 +1268,7 @@ Read operation of resource: pkts
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chainName** | **string**| ID of chain_name | 
   **id** | **int32**| ID of id | 
@@ -1369,7 +1298,7 @@ Read operation of resource: sport
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chainName** | **string**| ID of chain_name | 
   **id** | **int32**| ID of id | 
@@ -1399,7 +1328,7 @@ Read operation of resource: src
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chainName** | **string**| ID of chain_name | 
   **id** | **int32**| ID of id | 
@@ -1429,7 +1358,7 @@ Read operation of resource: tcpflags
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chainName** | **string**| ID of chain_name | 
   **id** | **int32**| ID of id | 
@@ -1459,63 +1388,7 @@ Read operation of resource: conntrack
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
-  **name** | **string**| ID of name | 
-
-### Return type
-
-**string**
-
-### Authorization
-
-No authorization required
-
-### HTTP request headers
-
- - **Content-Type**: application/json
- - **Accept**: application/json
-
-[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
-
-# **ReadFirewallEgressPortByID**
-> string ReadFirewallEgressPortByID(ctx, name)
-Read egress-port by ID
-
-Read operation of resource: egress-port
-
-### Required Parameters
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
-  **name** | **string**| ID of name | 
-
-### Return type
-
-**string**
-
-### Authorization
-
-No authorization required
-
-### HTTP request headers
-
- - **Content-Type**: application/json
- - **Accept**: application/json
-
-[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
-
-# **ReadFirewallIngressPortByID**
-> string ReadFirewallIngressPortByID(ctx, name)
-Read ingress-port by ID
-
-Read operation of resource: ingress-port
-
-### Required Parameters
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
 
 ### Return type
@@ -1543,7 +1416,7 @@ Read operation of resource: interactive
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
 
 ### Return type
@@ -1595,7 +1468,7 @@ Read operation of resource: loglevel
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
 
 ### Return type
@@ -1613,134 +1486,18 @@ No authorization required
 
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
-# **ReadFirewallPortsByID**
-> Ports ReadFirewallPortsByID(ctx, name, portsName)
-Read ports by ID
+# **ReadFirewallServiceNameByID**
+> string ReadFirewallServiceNameByID(ctx, name)
+Read service-name by ID
 
-Read operation of resource: ports
-
-### Required Parameters
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
-  **name** | **string**| ID of name | 
-  **portsName** | **string**| ID of ports_name | 
-
-### Return type
-
-[**Ports**](Ports.md)
-
-### Authorization
-
-No authorization required
-
-### HTTP request headers
-
- - **Content-Type**: application/json
- - **Accept**: application/json
-
-[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
-
-# **ReadFirewallPortsListByID**
-> []Ports ReadFirewallPortsListByID(ctx, name)
-Read ports by ID
-
-Read operation of resource: ports
+Read operation of resource: service-name
 
 ### Required Parameters
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
-
-### Return type
-
-[**[]Ports**](Ports.md)
-
-### Authorization
-
-No authorization required
-
-### HTTP request headers
-
- - **Content-Type**: application/json
- - **Accept**: application/json
-
-[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
-
-# **ReadFirewallPortsPeerByID**
-> string ReadFirewallPortsPeerByID(ctx, name, portsName)
-Read peer by ID
-
-Read operation of resource: peer
-
-### Required Parameters
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
-  **name** | **string**| ID of name | 
-  **portsName** | **string**| ID of ports_name | 
-
-### Return type
-
-**string**
-
-### Authorization
-
-No authorization required
-
-### HTTP request headers
-
- - **Content-Type**: application/json
- - **Accept**: application/json
-
-[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
-
-# **ReadFirewallPortsStatusByID**
-> string ReadFirewallPortsStatusByID(ctx, name, portsName)
-Read status by ID
-
-Read operation of resource: status
-
-### Required Parameters
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
-  **name** | **string**| ID of name | 
-  **portsName** | **string**| ID of ports_name | 
-
-### Return type
-
-**string**
-
-### Authorization
-
-No authorization required
-
-### HTTP request headers
-
- - **Content-Type**: application/json
- - **Accept**: application/json
-
-[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
-
-# **ReadFirewallPortsUuidByID**
-> string ReadFirewallPortsUuidByID(ctx, name, portsName)
-Read uuid by ID
-
-Read operation of resource: uuid
-
-### Required Parameters
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
-  **name** | **string**| ID of name | 
-  **portsName** | **string**| ID of ports_name | 
 
 ### Return type
 
@@ -1767,7 +1524,7 @@ Read operation of resource: session-table
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **src** | **string**| ID of src | 
   **dst** | **string**| ID of dst | 
@@ -1800,7 +1557,7 @@ Read operation of resource: eta
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **src** | **string**| ID of src | 
   **dst** | **string**| ID of dst | 
@@ -1833,7 +1590,7 @@ Read operation of resource: session-table
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
 
 ### Return type
@@ -1861,7 +1618,7 @@ Read operation of resource: state
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **src** | **string**| ID of src | 
   **dst** | **string**| ID of dst | 
@@ -1894,7 +1651,7 @@ Read operation of resource: type
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
 
 ### Return type
@@ -1922,7 +1679,7 @@ Read operation of resource: uuid
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
 
 ### Return type
@@ -1950,7 +1707,7 @@ Replace operation of resource: firewall
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **firewall** | [**Firewall**](Firewall.md)| firewallbody object | 
 
@@ -1979,7 +1736,7 @@ Replace operation of resource: chain
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chainName** | **string**| ID of chain_name | 
   **chain** | [**Chain**](Chain.md)| chainbody object | 
@@ -2009,7 +1766,7 @@ Replace operation of resource: chain
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chain** | [**[]Chain**](Chain.md)| chainbody object | 
 
@@ -2038,7 +1795,7 @@ Replace operation of resource: rule
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chainName** | **string**| ID of chain_name | 
   **id** | **int32**| ID of id | 
@@ -2069,69 +1826,10 @@ Replace operation of resource: rule
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chainName** | **string**| ID of chain_name | 
   **rule** | [**[]ChainRule**](ChainRule.md)| rulebody object | 
-
-### Return type
-
- (empty response body)
-
-### Authorization
-
-No authorization required
-
-### HTTP request headers
-
- - **Content-Type**: application/json
- - **Accept**: application/json
-
-[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
-
-# **ReplaceFirewallPortsByID**
-> ReplaceFirewallPortsByID(ctx, name, portsName, ports)
-Replace ports by ID
-
-Replace operation of resource: ports
-
-### Required Parameters
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
-  **name** | **string**| ID of name | 
-  **portsName** | **string**| ID of ports_name | 
-  **ports** | [**Ports**](Ports.md)| portsbody object | 
-
-### Return type
-
- (empty response body)
-
-### Authorization
-
-No authorization required
-
-### HTTP request headers
-
- - **Content-Type**: application/json
- - **Accept**: application/json
-
-[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
-
-# **ReplaceFirewallPortsListByID**
-> ReplaceFirewallPortsListByID(ctx, name, ports)
-Replace ports by ID
-
-Replace operation of resource: ports
-
-### Required Parameters
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
-  **name** | **string**| ID of name | 
-  **ports** | [**[]Ports**](Ports.md)| portsbody object | 
 
 ### Return type
 
@@ -2158,7 +1856,7 @@ Update operation of resource: accept-established
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **acceptEstablished** | **string**| If Connection Tracking is enabled, all packets belonging to ESTABLISHED connections will be forwarded automatically. Default is ON. | 
 
@@ -2187,7 +1885,7 @@ Update operation of resource: firewall
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **firewall** | [**Firewall**](Firewall.md)| firewallbody object | 
 
@@ -2216,7 +1914,7 @@ Update operation of resource: chain
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chainName** | **string**| ID of chain_name | 
   **chain** | [**Chain**](Chain.md)| chainbody object | 
@@ -2246,7 +1944,7 @@ Update operation of resource: default
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chainName** | **string**| ID of chain_name | 
   **default_** | **string**| Default action if no rule matches in the ingress chain. Default is DROP. | 
@@ -2276,7 +1974,7 @@ Update operation of resource: chain
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chain** | [**[]Chain**](Chain.md)| chainbody object | 
 
@@ -2305,7 +2003,7 @@ Update operation of resource: rule
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chainName** | **string**| ID of chain_name | 
   **id** | **int32**| ID of id | 
@@ -2336,7 +2034,7 @@ Update operation of resource: rule
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **chainName** | **string**| ID of chain_name | 
   **rule** | [**[]ChainRule**](ChainRule.md)| rulebody object | 
@@ -2366,67 +2064,9 @@ Update operation of resource: conntrack
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **conntrack** | **string**| Enables the Connection Tracking module. Mandatory if connection tracking rules are needed. Default is ON. | 
-
-### Return type
-
- (empty response body)
-
-### Authorization
-
-No authorization required
-
-### HTTP request headers
-
- - **Content-Type**: application/json
- - **Accept**: application/json
-
-[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
-
-# **UpdateFirewallEgressPortByID**
-> UpdateFirewallEgressPortByID(ctx, name, egressPort)
-Update egress-port by ID
-
-Update operation of resource: egress-port
-
-### Required Parameters
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
-  **name** | **string**| ID of name | 
-  **egressPort** | **string**| Name for the egress port, from which arrives traffic processed by EGRESS chain (by default it&#39;s the second port of the cube) | 
-
-### Return type
-
- (empty response body)
-
-### Authorization
-
-No authorization required
-
-### HTTP request headers
-
- - **Content-Type**: application/json
- - **Accept**: application/json
-
-[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
-
-# **UpdateFirewallIngressPortByID**
-> UpdateFirewallIngressPortByID(ctx, name, ingressPort)
-Update ingress-port by ID
-
-Update operation of resource: ingress-port
-
-### Required Parameters
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
-  **name** | **string**| ID of name | 
-  **ingressPort** | **string**| Name for the ingress port, from which arrives traffic processed by INGRESS chain (by default it&#39;s the first port of the cube) | 
 
 ### Return type
 
@@ -2453,7 +2093,7 @@ Update operation of resource: interactive
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **interactive** | **bool**| Interactive mode applies new rules immediately; if &#39;false&#39;, the command &#39;apply-rules&#39; has to be used to apply all the rules at once. Default is TRUE. | 
 
@@ -2482,7 +2122,7 @@ Update operation of resource: firewall
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **firewall** | [**[]Firewall**](Firewall.md)| firewallbody object | 
 
 ### Return type
@@ -2510,98 +2150,9 @@ Update operation of resource: loglevel
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
+ **ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
   **name** | **string**| ID of name | 
   **loglevel** | **string**| Defines the logging level of a service instance, from none (OFF) to the most verbose (TRACE) | 
-
-### Return type
-
- (empty response body)
-
-### Authorization
-
-No authorization required
-
-### HTTP request headers
-
- - **Content-Type**: application/json
- - **Accept**: application/json
-
-[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
-
-# **UpdateFirewallPortsByID**
-> UpdateFirewallPortsByID(ctx, name, portsName, ports)
-Update ports by ID
-
-Update operation of resource: ports
-
-### Required Parameters
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
-  **name** | **string**| ID of name | 
-  **portsName** | **string**| ID of ports_name | 
-  **ports** | [**Ports**](Ports.md)| portsbody object | 
-
-### Return type
-
- (empty response body)
-
-### Authorization
-
-No authorization required
-
-### HTTP request headers
-
- - **Content-Type**: application/json
- - **Accept**: application/json
-
-[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
-
-# **UpdateFirewallPortsListByID**
-> UpdateFirewallPortsListByID(ctx, name, ports)
-Update ports by ID
-
-Update operation of resource: ports
-
-### Required Parameters
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
-  **name** | **string**| ID of name | 
-  **ports** | [**[]Ports**](Ports.md)| portsbody object | 
-
-### Return type
-
- (empty response body)
-
-### Authorization
-
-No authorization required
-
-### HTTP request headers
-
- - **Content-Type**: application/json
- - **Accept**: application/json
-
-[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
-
-# **UpdateFirewallPortsPeerByID**
-> UpdateFirewallPortsPeerByID(ctx, name, portsName, peer)
-Update peer by ID
-
-Update operation of resource: peer
-
-### Required Parameters
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
- **ctx** | **context.Context** | context for logging, tracing, authentication, etc.
-  **name** | **string**| ID of name | 
-  **portsName** | **string**| ID of ports_name | 
-  **peer** | **string**| Peer name, such as a network interfaces (e.g., &#39;veth0&#39;) or another cube (e.g., &#39;br1:port2&#39;) | 
 
 ### Return type
 
