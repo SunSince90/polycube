@@ -213,11 +213,6 @@ func cmdAdd(args *skel.CmdArgs) error {
 		return fmt.Errorf("Error creating port in k8switch: %s", err)
 	}
 
-	//	Create the firewall here
-	if err := createFirewall(portName, ip.String()); err != nil {
-		log.Errorln("Could not create firewall.")
-	}
-
 	var mac net.HardwareAddr
 
 	gwLink, err := netlink.LinkByName(polycubeK8sInterface)
@@ -321,6 +316,12 @@ func cmdAdd(args *skel.CmdArgs) error {
 	}
 
 	success = true
+
+	//	If everything's all right, then create the firewall
+	if err := createFirewall(portName, ip.String()); err != nil {
+		log.Errorln("Could not create firewall.")
+	}
+
 	return types.PrintResult(result, cniVersion)
 }
 
