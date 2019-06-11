@@ -169,7 +169,7 @@ func (d *FirewallManager) Link(pod *core_v1.Pod) bool {
 	//	Check firewall health and pod presence
 	//-------------------------------------
 	if ok, err := d.isFirewallOk(name); !ok {
-		l.Errorf("Could not link firewall for pod %s: %s", podIP, err.Error())
+		l.Errorf("Could not link firewall for pod %s: %s", name, err.Error())
 		return false
 	}
 	_, alreadyLinked := d.linkedPods[podUID]
@@ -210,7 +210,7 @@ func (d *FirewallManager) Link(pod *core_v1.Pod) bool {
 	//	Inject rules and change default actions
 	//-------------------------------------
 	if len(ingressRules) > 0 || len(egressRules) > 0 {
-		if err := d.injecter(podIP, ingressRules, egressRules, nil, 0, 0); err != nil {
+		if err := d.injecter(name, ingressRules, egressRules, nil, 0, 0); err != nil {
 			//	injecter fails only if pod's firewall is not ok (it is dying or crashed or not found), so there's no point in going on.
 			l.Warningf("Injecter encountered an error upon linking the pod: %s. Will stop here.", err)
 			return false
@@ -218,22 +218,22 @@ func (d *FirewallManager) Link(pod *core_v1.Pod) bool {
 	}
 
 	// -- ingress
-	err := d.updateDefaultAction(podIP, "ingress", d.ingressDefaultAction)
+	err := d.updateDefaultAction(name, "ingress", d.ingressDefaultAction)
 	if err != nil {
 		l.Errorln("Could not update the default ingress action:", err)
 	} else {
-		_, err := d.applyRules(podIP, "ingress")
+		_, err := d.applyRules(name, "ingress")
 		if err != nil {
 			l.Errorln("Could not apply ingress rules:", err)
 		}
 	}
 
 	// -- egress
-	err = d.updateDefaultAction(podIP, "egress", d.egressDefaultAction)
+	err = d.updateDefaultAction(name, "egress", d.egressDefaultAction)
 	if err != nil {
 		l.Errorln("Could not update the default egress action:", err)
 	} else {
-		_, err := d.applyRules(podIP, "egress")
+		_, err := d.applyRules(name, "egress")
 		if err != nil {
 			l.Errorln("Could not apply egress rules:", err)
 		}
@@ -470,8 +470,7 @@ func (d *FirewallManager) updateCounts(operation, policyType string) {
 
 		// -- Let's now update the default actions.
 		for _, ip := range d.linkedPods {
-			//name := "fw-" + ip
-			name := ip
+			name := "fw-" + ip
 			for _, direction := range directions {
 				err := d.updateDefaultAction(name, direction, pcn_types.ActionDrop)
 				if err != nil {
@@ -506,8 +505,7 @@ func (d *FirewallManager) updateCounts(operation, policyType string) {
 
 		// -- Let's now update the default actions.
 		for _, ip := range d.linkedPods {
-			//name := "fw-" + ip
-			name := ip
+			name := "fw-" + ip
 			for _, direction := range directions {
 				err := d.updateDefaultAction(name, direction, pcn_types.ActionForward)
 				if err != nil {
