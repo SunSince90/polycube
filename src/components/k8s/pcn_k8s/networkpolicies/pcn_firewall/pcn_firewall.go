@@ -618,6 +618,8 @@ func (d *FirewallManager) buildIDs(policyName, target string, ingress, egress []
 	}
 
 	description := "policy=" + policyName
+	newIngress := make([]k8sfirewall.ChainRule, len(ingress))
+	newEgress := make([]k8sfirewall.ChainRule, len(egress))
 
 	// --- calculate ingress ids
 	/*go func() {
@@ -641,14 +643,15 @@ func (d *FirewallManager) buildIDs(policyName, target string, ingress, egress []
 	}()*/
 	go func() {
 		defer applyWait.Done()
-		i := 0
-		for ; i < len(ingress); i++ {
-			ingress[i].Description = description
+
+		for i, rule := range ingress {
+			newIngress[i] = rule
+			newIngress[i].Description = description
 			if len(target) > 0 {
-				ingress[i].Src = target
+				newIngress[i].Src = target
 			}
 
-			d.ingressRules[policyName] = append(d.ingressRules[policyName], ingress[i])
+			d.ingressRules[policyName] = append(d.ingressRules[policyName], newIngress[i])
 		}
 	}()
 
@@ -674,18 +677,19 @@ func (d *FirewallManager) buildIDs(policyName, target string, ingress, egress []
 	}()*/
 	go func() {
 		defer applyWait.Done()
-		i := 0
-		for ; i < len(ingress); i++ {
-			egress[i].Description = description
+
+		for i, rule := range egress {
+			newEgress[i] = rule
+			newEgress[i].Description = description
 			if len(target) > 0 {
-				egress[i].Src = target
+				newEgress[i].Src = target
 			}
 
-			d.egressRules[policyName] = append(d.egressRules[policyName], egress[i])
+			d.egressRules[policyName] = append(d.egressRules[policyName], newEgress[i])
 		}
 	}()
 
-	return ingress, egress
+	return newIngress, newEgress
 }
 
 // injecter is a convenient method for injecting rules for a single firewall for both directions
