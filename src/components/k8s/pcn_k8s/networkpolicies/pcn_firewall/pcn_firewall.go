@@ -1,10 +1,6 @@
 package pcnfirewall
 
 import (
-	"bytes"
-	"encoding/json"
-	"fmt"
-	"net/http"
 	"sync"
 	"time"
 
@@ -18,11 +14,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	core_v1 "k8s.io/api/core/v1"
 	k8s_types "k8s.io/apimachinery/pkg/types"
-)
-
-const (
-	polycubePath string = "/polycube/v1/"
-	firewallPath string = "firewall/"
 )
 
 // PcnFirewall is the interface of the firewall manager.
@@ -43,7 +34,7 @@ type FirewallManager struct {
 	// podController is the pod controller
 	podController pcn_controllers.PodController
 	// fwAPI is the low level firewall api
-	fwAPI k8sfirewall.FirewallAPI
+	fwAPI *k8sfirewall.FirewallApiService
 	// ingressRules contains the ingress rules divided by policy
 	//ingressRules map[string]map[int32]k8sfirewall.ChainRule
 	ingressRules map[string][]k8sfirewall.ChainRule
@@ -113,7 +104,7 @@ type selector struct {
 }
 
 // StartFirewall will start a new firewall manager
-func StartFirewall(API k8sfirewall.FirewallAPI, podController pcn_controllers.PodController, name, namespace string, labels map[string]string, node *core_v1.Node) PcnFirewall {
+func StartFirewall(API *k8sfirewall.FirewallApiService, podController pcn_controllers.PodController, name, namespace string, labels map[string]string, node *core_v1.Node) PcnFirewall {
 	//	This method is unexported by design: *only* the network policy manager is supposed to create firewall managers.
 	l := log.NewEntry(log.New())
 	l.WithFields(log.Fields{"by": FWM, "method": "StartFirewall()"})
@@ -172,28 +163,24 @@ func (d *FirewallManager) Link(pod *core_v1.Pod) bool {
 
 	podIP := pod.Status.PodIP
 	podUID := pod.UID
-	//name := "fw-" + podIP
-	//name := podIP
+	name := "fw-" + podIP
 
 	//-------------------------------------
 	//	Check firewall health and pod presence
 	//-------------------------------------
-	/*if ok, err := d.isFirewallOk(name); !ok {
+	if ok, err := d.isFirewallOk(name); !ok {
 		l.Errorf("Could not link firewall for pod %s: %s", podIP, err.Error())
 		return false
-	}*/
+	}
 	_, alreadyLinked := d.linkedPods[podUID]
 	if alreadyLinked {
 		return false
 	}
 
-	// init its firewall
-	d.initFirewall(podIP)
-
 	//-------------------------------------
 	//	Extract the rules
 	//-------------------------------------
-	//	We are going to get all rules regardless of the policy they belong to, so we can make a single http request.
+	//	We are going to get all rules regardless of the policy they belong to
 	ingressRules := []k8sfirewall.ChainRule{}
 	egressRules := []k8sfirewall.ChainRule{}
 
@@ -205,9 +192,7 @@ func (d *FirewallManager) Link(pod *core_v1.Pod) bool {
 		go func() {
 			defer waiter.Done()
 			for _, rules := range d.ingressRules {
-				for _, rule := range rules {
-					ingressRules = append(ingressRules, rule)
-				}
+				ingressRules = append(ingressRules, rules...)
 			}
 		}()
 
@@ -215,9 +200,7 @@ func (d *FirewallManager) Link(pod *core_v1.Pod) bool {
 		go func() {
 			defer waiter.Done()
 			for _, rules := range d.egressRules {
-				for _, rule := range rules {
-					egressRules = append(egressRules, rule)
-				}
+				egressRules = append(egressRules, rules...)
 			}
 		}()
 		waiter.Wait()
@@ -227,7 +210,7 @@ func (d *FirewallManager) Link(pod *core_v1.Pod) bool {
 	//	Inject rules and change default actions
 	//-------------------------------------
 	if len(ingressRules) > 0 || len(egressRules) > 0 {
-		if err := d.injecter(podIP, ingressRules, egressRules, nil, 1, 1); err != nil {
+		if err := d.injecter(podIP, ingressRules, egressRules, nil, 0, 0); err != nil {
 			//	injecter fails only if pod's firewall is not ok (it is dying or crashed or not found), so there's no point in going on.
 			l.Warningf("Injecter encountered an error upon linking the pod: %s. Will stop here.", err)
 			return false
@@ -264,129 +247,6 @@ func (d *FirewallManager) Link(pod *core_v1.Pod) bool {
 	return true
 }
 
-func (d *FirewallManager) marshal(rule k8sfirewall.ChainRule) ([]byte, error) {
-	data, err := json.Marshal(&rule)
-	if err != nil {
-		log.Errorln("Cannot marshal to json:", err)
-		return nil, err
-	}
-	return data, nil
-}
-
-func (d *FirewallManager) initFirewall(ip string) error {
-	//	Create the firewall
-	createFirewall := func(ip string) error {
-		resp, err := http.Post("http://"+ip+":9000"+polycubePath+firewallPath+"fw", "application/json", nil)
-		if err != nil {
-			log.Infoln("Could not create firewall:", err, resp)
-			return err
-		}
-
-		return nil
-	}
-
-	//	Append the default rules
-	appendDefaultIngressRule := func(ip string) error {
-		endPoint := "http://" + ip + ":9000/polycube/v1/firewall/fw/chain/ingress/append/"
-		rule := k8sfirewall.ChainRule{
-			Action: "forward",
-			Dport:  9000,
-		}
-		data, err := d.marshal(rule)
-		if err != nil {
-			return err
-		}
-
-		req, err := http.NewRequest("POST", endPoint, bytes.NewBuffer(data))
-		req.Header.Set("Content-Type", "application/json")
-		client := &http.Client{}
-		_, err = client.Do(req)
-		if err != nil {
-			log.Errorln("Error while trying to send request:", err)
-			return err
-		}
-		return nil
-	}
-
-	appendDefaultEgressRule := func(ip string) error {
-		endPoint := "http://" + ip + ":9000/polycube/v1/firewall/fw/chain/egress/append/"
-		rule := k8sfirewall.ChainRule{
-			Action: "forward",
-			Sport:  9000,
-		}
-		data, err := d.marshal(rule)
-		if err != nil {
-			return err
-		}
-		req, err := http.NewRequest("POST", endPoint, bytes.NewBuffer(data))
-		req.Header.Set("Content-Type", "application/json")
-		client := &http.Client{}
-		_, err = client.Do(req)
-		if err != nil {
-			log.Errorln("Error while trying to send request:", err)
-			return err
-		}
-
-		return nil
-	}
-
-	//	Set it as async
-	setAsync := func(ip string) bool {
-		jsonStr := []byte(`true`)
-		client := http.Client{}
-
-		req, err := http.NewRequest("PATCH", "http://"+ip+":9000"+polycubePath+firewallPath+"fw/interactive", bytes.NewBuffer(jsonStr))
-		if err != nil {
-			log.Infoln("Could not set firewall as asynchronous", err, req)
-			return false
-		}
-		req.Header.Set("Content-Type", "application/json")
-		resp, err := client.Do(req)
-		if err != nil {
-			log.Infoln("Could not set firewall as asynchronous", err, resp)
-			return false
-		}
-		defer resp.Body.Close()
-		return true
-	}
-
-	// Attach it
-	attach := func(ip string) error {
-		var jsonStr = []byte(`{"cube":"fw", "port":"eth0"}`)
-		resp, err := http.Post("http://"+ip+":9000"+polycubePath+"attach", "application/json", bytes.NewBuffer(jsonStr))
-		if err != nil {
-			log.Errorln("Could not attach firewall:", err, resp)
-			return err
-		}
-
-		return nil
-	}
-
-	//-------------------------------------
-	//	Entry Point
-	//-------------------------------------
-
-	if err := createFirewall(ip); err != nil {
-		return err
-	}
-
-	if err := appendDefaultIngressRule(ip); err != nil {
-		return err
-	}
-
-	if err := appendDefaultEgressRule(ip); err != nil {
-		return err
-	}
-
-	setAsync(ip)
-
-	if err := attach(ip); err != nil {
-		return err
-	}
-
-	return nil
-}
-
 // Unlink removes the provided pod from the list of monitored ones by this firewall manager.
 // If the second argument is TRUE, then the provided pod's firewall will be destroyed as well.
 // It returns FALSE if the pod was not among the monitored ones, and the number of remaining pods linked.
@@ -398,8 +258,7 @@ func (d *FirewallManager) Unlink(pod *core_v1.Pod, then UnlinkOperation) (bool, 
 	defer d.lock.Unlock()
 
 	podUID := pod.UID
-	//name := "fw-" + pod.Status.PodIP
-	name := pod.Status.PodIP
+	name := "fw-" + pod.Status.PodIP
 
 	_, ok := d.linkedPods[podUID]
 	if !ok {
@@ -475,29 +334,7 @@ func (d *FirewallManager) EnforcePolicy(policyName, policyType string, policyTim
 	//	Set its priority
 	//-------------------------------------
 
-	t := 0
-	iStartFrom := int32(1)
-	eStartFrom := int32(1)
-	for i, thisPolicy := range d.priorities {
-		if policyTime.Time.Before(thisPolicy.timestamp) {
-			t = i
-			break
-		}
-		t++
-
-		// jump the rules
-		iStartFrom += int32(len(d.ingressRules[thisPolicy.policyName]))
-		eStartFrom += int32(len(d.egressRules[thisPolicy.policyName]))
-	}
-
-	temp := []policyPriority{}
-	temp = append(temp, d.priorities[:t]...)
-	temp = append(temp, policyPriority{
-		policyName: policyName,
-		timestamp:  policyTime.Time,
-	})
-	temp = append(temp, d.priorities[t:]...)
-	d.priorities = temp
+	iStartFrom, eStartFrom := d.setPolicyPriority(policyName, policyTime)
 
 	//-------------------------------------
 	//	Inject the rules on each firewall
@@ -512,11 +349,97 @@ func (d *FirewallManager) EnforcePolicy(policyName, policyType string, policyTim
 	injectWaiter.Add(len(d.linkedPods))
 
 	for _, ip := range d.linkedPods {
-		//name := "fw-" + ip
-		name := ip
+		name := "fw-" + ip
 		go d.injecter(name, ingressIDs, egressIDs, &injectWaiter, iStartFrom, eStartFrom)
 	}
 	injectWaiter.Wait()
+}
+
+// setPolicyPriority sets the priority of the policy in the rules list
+func (d *FirewallManager) setPolicyPriority(policyName string, policyTime meta_v1.Time) (int32, int32) {
+	//	Ingress and egress first useful ids
+	iStartFrom := 0
+	eStartFrom := 0
+
+	//	NOTE: we can't use a map for this operation, because we need to know how many rules to skip.
+	//	calculateInsertionIDs has an example of this.
+
+	//	Loop through all policies
+	t := 0
+	for i, currentPolicy := range d.priorities {
+		//	If the policy we're going to enforce has been deployed AFTER the one we're checking, then it tkes precedence
+		if policyTime.After(currentPolicy.timestamp) {
+			t = i
+			break
+		}
+		t++
+
+		// jump the rules
+		iStartFrom += len(d.ingressRules[currentPolicy.policyName])
+		eStartFrom += len(d.egressRules[currentPolicy.policyName])
+	}
+
+	//	Reformat the priorities list:
+	// 1) first insert the policies up to the new found index (t)
+	// 2) then insert this policy
+	// 3) finally, insert all other policies
+	// 4) update the priorities with the new one.
+	temp := []policyPriority{}
+	temp = append(temp, d.priorities[:t]...) // 1)
+	temp = append(temp, policyPriority{      // 2)
+		policyName: policyName,
+		timestamp:  policyTime.Time,
+	})
+	temp = append(temp, d.priorities[t:]...) // 3)
+	d.priorities = temp                      // 4)
+
+	return int32(iStartFrom), int32(eStartFrom)
+}
+
+// removePolicyPriority removes the policy from the list of the priorities and reformats it.
+func (d *FirewallManager) removePolicyPriority(policyName string) {
+	//	Loop through all policies to find it
+	i := 0
+	for ; d.priorities[i].policyName != policyName; i++ {
+	}
+
+	//	Reformat the priorities list:
+	// 1) first insert the policies up to the new found index (t)
+	// 2) then copy from the found index +1
+	// 4) update the priorities with the new one.
+	temp := []policyPriority{}
+	temp = append(temp, d.priorities[:i]...)   // 1)
+	temp = append(temp, d.priorities[i+1:]...) // 2)
+	d.priorities = temp                        // 3)
+}
+
+// calculateInsertionIDs gets the first useful rules IDs for insertion, based on the policy's priority
+func (d *FirewallManager) calculateInsertionIDs(policyName string) (int32, int32) {
+	iStartFrom := 0
+	eStartFrom := 0
+
+	/* Example: we want to insert 2 rules for policy my-policy, this is the current list of priorities:
+	0) my-other-policy (it has 2 rules)
+	2) my-policy (it has 1 rule)
+	3) yet-another-policy (it has 2 rules)
+
+	On each iteration we count the number of rules for that policy, and we stop when the policy is the one we need.
+	First iteration: 2 rules -> 0 + 2 = start from id 2 -> the policy is not the one we need -> go on.
+	Second iteration: 1 rule -> 2 + 1 = start from id 3 -> the policy is ok > stop.
+	We're going to insert from id 3.
+	*/
+
+	for _, currentPolicy := range d.priorities {
+		// jump the rules
+		iStartFrom += len(d.ingressRules[currentPolicy.policyName])
+		eStartFrom += len(d.egressRules[currentPolicy.policyName])
+
+		if currentPolicy.policyName == policyName {
+			break
+		}
+	}
+
+	return int32(iStartFrom), int32(eStartFrom)
 }
 
 // updateCounts updates the internal counts of policies types enforced, making sure default actions are respected.
@@ -672,6 +595,8 @@ func (d *FirewallManager) decreaseCount(which string) bool {
 
 // buildIDs calculates IDs for each rule provided, updating the first usable ids accordingly.
 // It returns the rules with the appropriate ID, so they can be instantly injected.
+// UPDATE: this is not true anymore: we're not going to add rules based on ID, but rathern on their policy's priority now.
+// So, this function has been kept with this name, but it now just adds rules on memory.
 func (d *FirewallManager) buildIDs(policyName, target string, ingress, egress []k8sfirewall.ChainRule) ([]k8sfirewall.ChainRule, []k8sfirewall.ChainRule) {
 	var applyWait sync.WaitGroup
 	applyWait.Add(2)
@@ -758,7 +683,7 @@ func (d *FirewallManager) buildIDs(policyName, target string, ingress, egress []
 	return ingress, egress
 }
 
-// injecter is a convenient method for injecting ingress and egress rules for a single firewall
+// injecter is a convenient method for injecting rules for a single firewall for both directions
 func (d *FirewallManager) injecter(firewall string, ingressRules, egressRules []k8sfirewall.ChainRule, waiter *sync.WaitGroup, iStartFrom, eStartFrom int32) error {
 	l := log.NewEntry(d.log)
 	l.WithFields(log.Fields{"by": "FirewallManager-" + d.name, "method": "Injecter(" + firewall + ", ...)"})
@@ -769,11 +694,10 @@ func (d *FirewallManager) injecter(firewall string, ingressRules, egressRules []
 	}
 
 	//	Is firewall ok?
-	/*if ok, err := d.isFirewallOk(firewall); !ok {
-		//	TODO: define an array with rules not injected?
+	if ok, err := d.isFirewallOk(firewall); !ok {
 		l.Errorln("Could not inject rules. Firewall is not ok:", err)
 		return err
-	}*/
+	}
 
 	//-------------------------------------
 	//	Inject rules direction concurrently
@@ -782,7 +706,6 @@ func (d *FirewallManager) injecter(firewall string, ingressRules, egressRules []
 	injectWaiter.Add(2)
 	defer injectWaiter.Wait()
 
-	//	TODO: how to handle these if they have errors?
 	go d.injectRules(firewall, "ingress", ingressRules, &injectWaiter, iStartFrom)
 	go d.injectRules(firewall, "egress", egressRules, &injectWaiter, eStartFrom)
 
@@ -803,33 +726,26 @@ func (d *FirewallManager) injectRules(firewall, direction string, rules []k8sfir
 	//	Inject & apply
 	//-------------------------------------
 
-	endPoint := "http://" + firewall + ":9000/polycube/v1/firewall/fw/chain/" + direction + "/insert/"
+	// We are using the insert call here, which adds the rule on the startFrom id and pushes the other rules downwards.
+	// In order to preserve original order, we're going to start injecting from the last to the first.
+
 	len := len(rules)
 	for i := len - 1; i > -1; i-- {
-		rule := rules[i]
-		rule.Id = startFrom
-		data, err := d.marshal(rule)
-		if err == nil {
-			req, err := http.NewRequest("POST", endPoint, bytes.NewBuffer(data))
-			req.Header.Set("Content-Type", "application/json")
-
-			client := &http.Client{}
-			_, err = client.Do(req)
-			if err != nil {
-				log.Errorln("Error while trying to send request:", err)
-			}
+		ruleToInsert := k8sfirewall.ChainInsertInput(rules[i])
+		ruleToInsert.Id = startFrom
+		_, response, err := d.fwAPI.CreateFirewallChainInsertByID(nil, firewall, direction, ruleToInsert)
+		if err != nil {
+			l.Errorln("Error while trying to inject rule:", err, response)
+			//	This rule had an error, but we still gotta push the other ones man...
+			//return err
 		}
 	}
 
-	/*response, err := d.fwAPI.CreateFirewallChainRuleListByID(nil, firewall, direction, rules)
-	if err != nil {
-		l.Errorln("Error while trying to inject rules:", err, response)
-		return err
-	}
+	//	Now apply the changes
 	if response, err := d.applyRules(firewall, direction); err != nil {
 		l.Errorln("Error while trying to apply rules:", err, response)
 		return err
-	}*/
+	}
 
 	return nil
 }
@@ -918,30 +834,19 @@ func (d *FirewallManager) reactToPod(event pcn_types.EventType, pod *core_v1.Pod
 		ingress := []k8sfirewall.ChainRule{}
 		egress := []k8sfirewall.ChainRule{}
 
-		//	Build all rules regardless of the policy, so we can inject them at once and apply only once.
-		//	Usually an update only consists of few rules, so this should be very fast.
+		//	Build rules according to the policy's priority
 		for policy, rules := range actions.actions {
 			ingressRules, egressRules := d.buildIDs(policy, ip, rules.Ingress, rules.Egress)
 			ingress = append(ingress, ingressRules...)
 			egress = append(egress, egressRules...)
 
 			// calculate the priority
-			iStartFrom := int32(1)
-			eStartFrom := int32(1)
-			for _, thisPolicy := range d.priorities {
-				// jump the rules
-				iStartFrom += int32(len(d.ingressRules[thisPolicy.policyName]))
-				eStartFrom += int32(len(d.egressRules[thisPolicy.policyName]))
-
-				if thisPolicy.policyName == policy {
-					break
-				}
-			}
+			iStartFrom, eStartFrom := d.calculateInsertionIDs(policy)
 
 			//	Now inject the rules in all firewalls linked.
+			//	This usually is a matter of 1-2 rules, so no need to do this in a separate goroutine.
 			for _, f := range d.linkedPods {
-				//name := "fw-" + f
-				name := f
+				name := "fw-" + f
 				d.injecter(name, ingress, egress, nil, iStartFrom, eStartFrom)
 			}
 		}
@@ -958,9 +863,11 @@ func (d *FirewallManager) reactToPod(event pcn_types.EventType, pod *core_v1.Pod
 		//	--- Ingress
 		go func() {
 			defer waiter.Done()
+
+			//	For each policy, go get all the rules in which this ip was present.
 			rulesToDelete := []k8sfirewall.ChainRule{}
 			rulesToKeep := []k8sfirewall.ChainRule{}
-			for policy, rulesToDelete := range d.ingressRules {
+			for policy := range d.ingressRules {
 				for _, rule := range rulesToDelete {
 					if rule.Src == ip {
 						rulesToDelete = append(rulesToDelete, rule)
@@ -992,13 +899,11 @@ func (d *FirewallManager) reactToPod(event pcn_types.EventType, pod *core_v1.Pod
 
 				//	Delete the rules on each linked pod
 				for _, ip := range d.linkedPods {
-					//name := "fw-" + ip
-					name := ip
+					name := "fw-" + ip
 					d.deleteRules(name, "ingress", rulesToDelete)
 					d.applyRules(name, "ingress")
 				}
 			}
-
 		}()
 
 		//	--- Egress
@@ -1036,8 +941,7 @@ func (d *FirewallManager) reactToPod(event pcn_types.EventType, pod *core_v1.Pod
 				}*/
 
 				for _, ip := range d.linkedPods {
-					name := ip
-					//TODO
+					name := "fw-" + ip
 					d.deleteRules(name, "egress", rulesToDelete)
 					d.applyRules(name, "egress")
 				}
@@ -1048,7 +952,7 @@ func (d *FirewallManager) reactToPod(event pcn_types.EventType, pod *core_v1.Pod
 	}
 
 	//-------------------------------------
-	//	What to do?
+	//	Main entrypoint: what to do?
 	//-------------------------------------
 
 	switch event {
@@ -1070,33 +974,33 @@ func (d *FirewallManager) deleteAllPolicyRules(policy string) {
 	//	Ingress
 	//-------------------------------------
 	go func() {
+		defer delete(d.ingressRules, policy)
 		defer waiter.Done()
+
 		rules := d.ingressRules[policy]
-		if len(rules) > 0 {
-			/*ingressIDs := make([]k8sfirewall.ChainRule, len(rules))
-			i := 0
-			for id, rule := range rules {
-				ingressIDs[i] = rule
-				ip := rule.Src
-				if _, exists := d.ingressIPs[ip]; exists {
-					delete(d.ingressIPs[ip], id)
-					if len(d.ingressIPs[ip]) < 1 {
-						delete(d.ingressIPs, ip)
-					}
-				} else {
-					l.Warningln(ip, "was not in the ingress ip structure!")
+		if len(rules) < 1 {
+			return
+		}
+		/*ingressIDs := make([]k8sfirewall.ChainRule, len(rules))
+		i := 0
+		for id, rule := range rules {
+			ingressIDs[i] = rule
+			ip := rule.Src
+			if _, exists := d.ingressIPs[ip]; exists {
+				delete(d.ingressIPs[ip], id)
+				if len(d.ingressIPs[ip]) < 1 {
+					delete(d.ingressIPs, ip)
 				}
-				i++
-			}*/
-
-			//	Delete the found rules from each linked pod
-			for _, ip := range d.linkedPods {
-				//name := "fw-" + ip
-				name := ip
-				d.deleteRules(name, "ingress", rules)
+			} else {
+				l.Warningln(ip, "was not in the ingress ip structure!")
 			}
+			i++
+		}*/
 
-			delete(d.ingressRules, policy)
+		//	Delete the found rules from each linked pod
+		for _, ip := range d.linkedPods {
+			name := "fw-" + ip
+			d.deleteRules(name, "ingress", rules)
 		}
 	}()
 
@@ -1104,34 +1008,34 @@ func (d *FirewallManager) deleteAllPolicyRules(policy string) {
 	//	Egress
 	//-------------------------------------
 	go func() {
+		defer delete(d.egressRules, policy)
 		defer waiter.Done()
+
 		rules := d.egressRules[policy]
-		if len(rules) > 0 {
-			/*egressIDs := make([]k8sfirewall.ChainRule, len(rules))
-			i := 0
-			for id, rule := range rules {
-				egressIDs[i] = rule
-				ip := rule.Dst
-				if _, exists := d.egressIPs[ip]; exists {
-					delete(d.egressIPs[ip], id)
-					if len(d.egressIPs[ip]) < 1 {
-						//	If this IP is not mentioned in any rule anymore, than remove it
-						delete(d.egressIPs, ip)
-					}
-				} else {
-					l.Warningln(ip, "was not in the egress ip structure!")
+		if len(rules) < 1 {
+			return
+		}
+		/*egressIDs := make([]k8sfirewall.ChainRule, len(rules))
+		i := 0
+		for id, rule := range rules {
+			egressIDs[i] = rule
+			ip := rule.Dst
+			if _, exists := d.egressIPs[ip]; exists {
+				delete(d.egressIPs[ip], id)
+				if len(d.egressIPs[ip]) < 1 {
+					//	If this IP is not mentioned in any rule anymore, than remove it
+					delete(d.egressIPs, ip)
 				}
-				i++
-			}*/
-
-			//	Delete the found rules from each linked pod
-			for _, ip := range d.linkedPods {
-				//name := "fw-" + ip
-				name := ip
-				d.deleteRules(name, "egress", rules)
+			} else {
+				l.Warningln(ip, "was not in the egress ip structure!")
 			}
+			i++
+		}*/
 
-			delete(d.egressRules, policy)
+		//	Delete the found rules from each linked pod
+		for _, ip := range d.linkedPods {
+			name := "fw-" + ip
+			d.deleteRules(name, "egress", rules)
 		}
 	}()
 
@@ -1161,7 +1065,7 @@ func (d *FirewallManager) deleteAllPolicyTemplates(policy string) {
 	//-------------------------------------
 	//	Delete actions with no policies
 	//-------------------------------------
-	//	If, after deletion the policy from the actions, the action has no policy anymore then we need to stop monitoring that pod!
+	//	If, after deleting the policy from the actions, the action has no policy anymore then we need to stop monitoring that pod!
 	for _, flaggedKey := range flaggedForDeletion {
 		for _, unsubscribe := range d.policyActions[flaggedKey].unsubscriptors {
 			unsubscribe()
@@ -1192,6 +1096,12 @@ func (d *FirewallManager) CeasePolicy(policyName string) {
 	d.deleteAllPolicyTemplates(policyName)
 
 	//-------------------------------------
+	//	Remove this policy's priority
+	//-------------------------------------
+	//	This is actually a useless operation... but, you know... just for the sake of clarity.
+	d.removePolicyPriority(policyName)
+
+	//-------------------------------------
 	//	Update the default actions
 	//-------------------------------------
 	//	So we just ceased a policy, we now need to update the default actions
@@ -1208,27 +1118,30 @@ func (d *FirewallManager) deleteRules(fw, direction string, rules []k8sfirewall.
 	l := log.NewEntry(d.log)
 	l.WithFields(log.Fields{"by": "FirewallManager-" + d.name, "method": "deleteRules()"})
 
-	//var err error
+	// this is a fake deep copy-cast.
+	cast := func(rule k8sfirewall.ChainRule) k8sfirewall.ChainDeleteInput {
+		return k8sfirewall.ChainDeleteInput{
+			Src:         rule.Src,
+			Dst:         rule.Dst,
+			L4proto:     rule.L4proto,
+			Sport:       rule.Sport,
+			Dport:       rule.Dport,
+			Tcpflags:    rule.Tcpflags,
+			Conntrack:   rule.Conntrack,
+			Action:      rule.Action,
+			Description: rule.Description,
+		}
+	}
 
 	//	No need to do this with separate threads...
 	for _, rule := range rules {
-		endPoint := "http://" + fw + ":9000/polycube/v1/firewall/fw/chain/ingress/delete/"
-		data, err := d.marshal(rule)
-		req, err := http.NewRequest("POST", endPoint, bytes.NewBuffer(data))
-		req.Header.Set("Content-Type", "application/json")
-		client := &http.Client{}
-
-		_, err = client.Do(req)
+		// Delete the rule not by its ID, but by the fields it is composed of.
+		response, err := d.fwAPI.CreateFirewallChainDeleteByID(nil, fw, direction, cast(rule))
 		if err != nil {
-			fmt.Println("Error while trying to apply rules:", err)
-			return err
+			l.Errorf("Error while trying to delete this rule: %+v, in %s for firewall %s. Error %s, response: %+v\n", rule, direction, fw, err.Error(), response)
 		}
-		/*if response, err := d.fwAPI.DeleteFirewallChainRuleByID(nil, fw, direction, id); err != nil {
-			l.Errorf("Error while trying to delete rule %d, in %s for firewall %s. Error %s, response: %+v\n", id, direction, fw, err.Error(), response)
-		}*/
 	}
 
-	//	This is just temporary
 	return nil
 }
 
@@ -1246,7 +1159,7 @@ func (d *FirewallManager) Selector() (map[string]string, string) {
 	return d.selector.labels, d.selector.namespace
 }
 
-// isFirewallOk checks if the firewall is ok. Used to check if firewall exists and is healthy
+// isFirewallOk checks if the firewall is ok. Used to check if firewall exists and is healthy.
 func (d *FirewallManager) isFirewallOk(firewall string) (bool, error) {
 	//	We are going to do that by reading its uuid
 	if _, _, err := d.fwAPI.ReadFirewallUuidByID(nil, firewall); err != nil {
@@ -1256,45 +1169,21 @@ func (d *FirewallManager) isFirewallOk(firewall string) (bool, error) {
 }
 
 // updateDefaultAction is a wrapper for UpdateFirewallChainDefaultByID method.
-func (d *FirewallManager) updateDefaultAction(ip, direction, to string) error {
-	jsonStr := []byte(`"forward"`)
-	client := http.Client{}
-	req, err := http.NewRequest("PATCH", "http://"+ip+":9000"+polycubePath+firewallPath+"fw/chain/"+direction+"/default", bytes.NewBuffer(jsonStr))
-	if err != nil {
-		log.Infoln("Could not change default action in", direction, err, req)
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Infoln("Could not change default action in", direction, err, resp)
-		return err
-	}
-	defer resp.Body.Close()
-	return nil
+func (d *FirewallManager) updateDefaultAction(firewall, direction, to string) error {
+	_, err := d.fwAPI.UpdateFirewallChainDefaultByID(nil, firewall, direction, to)
+	return err
 }
 
 // applyRules is a wrapper for CreateFirewallChainApplyRulesByID method.
-func (d *FirewallManager) applyRules(ip, direction string) (bool, error) {
-	endPoint := "http://" + ip + ":9000/polycube/v1/firewall/fw/chain/ingress/apply-rules/"
-	req, err := http.NewRequest("POST", endPoint, nil)
-	req.Header.Set("Content-Type", "application/json")
-	client := &http.Client{}
-
-	_, err = client.Do(req)
-	if err != nil {
-		log.Errorln("Error while trying to apply rules:", err)
-		return false, err
-	}
-
-	return true, nil
+func (d *FirewallManager) applyRules(firewall, direction string) (bool, error) {
+	out, _, err := d.fwAPI.CreateFirewallChainApplyRulesByID(nil, firewall, direction)
+	return out.Result, err
 }
 
 // destroyFw destroy a firewall linked by this firewall manager
 func (d *FirewallManager) destroyFw(name string) error {
-	/*_, err := d.fwAPI.DeleteFirewallByID(nil, name)
-	return err*/
-	return nil
+	_, err := d.fwAPI.DeleteFirewallByID(nil, name)
+	return err
 }
 
 // cleanFw cleans the firewall linked by this firewall manager
@@ -1302,17 +1191,17 @@ func (d *FirewallManager) cleanFw(name string) (error, error) {
 	var iErr error
 	var eErr error
 
-	/*if _, err := d.fwAPI.DeleteFirewallChainRuleListByID(nil, name, "ingress"); err != nil {
+	if _, err := d.fwAPI.DeleteFirewallChainRuleListByID(nil, name, "ingress"); err != nil {
 		iErr = err
 	}
 	if _, err := d.fwAPI.DeleteFirewallChainRuleListByID(nil, name, "egress"); err != nil {
 		eErr = err
-	}*/
+	}
 
 	return iErr, eErr
 }
 
-// Destroy destroys to current firewall manager. This function should not be called manually,
+// Destroy destroys the current firewall manager. This function should not be called manually,
 // as it is called automatically after a certain time has passed while monitoring no pods.
 // To destroy a particular firewall, see the Unlink function.
 func (d *FirewallManager) Destroy() {

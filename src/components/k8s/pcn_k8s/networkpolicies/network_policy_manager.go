@@ -37,7 +37,7 @@ type NetworkPolicyManager struct {
 	// log is the logger instance
 	log *log.Logger
 	// fwAPI is the firewall API
-	fwAPI k8sfirewall.FirewallAPI
+	fwAPI *k8sfirewall.FirewallApiService
 	// node is the node in which we are running
 	node *core_v1.Node
 	// nodeName is the name of the node in which we are running
