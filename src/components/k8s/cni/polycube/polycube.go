@@ -331,7 +331,7 @@ func createFirewall(portName, ip string) error {
 	name := "fw-" + ip
 
 	//	Already exists?
-	fw, _, err := fwAPI.ReadFirewallByID(nil, name)
+	//fw, _, err := fwAPI.ReadFirewallByID(nil, name)
 
 	//	First create the firewall
 	if response, err := fwAPI.CreateFirewallByID(nil, name, k8sfirewall.Firewall{
