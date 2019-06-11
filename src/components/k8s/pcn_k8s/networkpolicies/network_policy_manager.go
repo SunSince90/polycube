@@ -255,8 +255,19 @@ func (manager *NetworkPolicyManager) deployK8sPolicyToFw(policy *networking_v1.N
 
 	podsWaitGroup.Wait()
 
+	//	Firewall is transparent: we need to reverse the directions
+	opposedPolicyType := policyType
+	if opposedPolicyType != "*" {
+		if policyType == "ingress" {
+			opposedPolicyType = "egress"
+		} else {
+			opposedPolicyType = "ingress"
+		}
+	}
+
 	//	Actually enforce the policy
-	fw.EnforcePolicy(policy.Name, policyType, policy.CreationTimestamp, parsed.Ingress, parsed.Egress, fwActions)
+	fw.EnforcePolicy(policy.Name, opposedPolicyType, policy.CreationTimestamp, parsed.Ingress, parsed.Egress, fwActions)
+	//fw.EnforcePolicy(policy.Name, policyType, policy.CreationTimestamp, parsed.Ingress, parsed.Egress, fwActions)
 }
 
 // implode creates a key in the format of namespace_name|key1=value1;key2=value2;.

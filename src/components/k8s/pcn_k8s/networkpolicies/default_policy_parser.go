@@ -105,7 +105,8 @@ func (d *DefaultPolicyParser) ParseIngress(rules []networking_v1.NetworkPolicyIn
 		Ingress: []k8sfirewall.ChainRule{},
 		Egress:  []k8sfirewall.ChainRule{},
 	}
-	direction := "ingress"
+	//direction := "ingress"
+	direction := "egress" // firewall is transparent: policy ingress is egress in the firewall
 
 	//-------------------------------------
 	//	Preliminary checks
@@ -219,7 +220,8 @@ func (d *DefaultPolicyParser) ParseEgress(rules []networking_v1.NetworkPolicyEgr
 		Ingress: []k8sfirewall.ChainRule{},
 		Egress:  []k8sfirewall.ChainRule{},
 	}
-	direction := "egress"
+	//direction := "egress"
+	direction := "ingress" // read above
 
 	//-------------------------------------
 	//	Preliminary checks
@@ -859,7 +861,8 @@ func (d *DefaultPolicyParser) BuildActions(ingress []networking_v1.NetworkPolicy
 						action.NamespaceName = currentNamespace
 					}
 
-					action.Templates = d.GetConnectionTemplate("ingress", "", "", pcn_types.ActionForward, ports)
+					//action.Templates = d.GetConnectionTemplate("ingress", "", "", pcn_types.ActionForward, ports)
+					action.Templates = d.GetConnectionTemplate("egress", "", "", pcn_types.ActionForward, ports)
 					action.Key = d.buildActionKey(action.PodLabels, action.NamespaceLabels, action.NamespaceName)
 					ingressActions = append(ingressActions, action)
 				}
@@ -895,7 +898,8 @@ func (d *DefaultPolicyParser) BuildActions(ingress []networking_v1.NetworkPolicy
 						action.NamespaceName = currentNamespace
 					}
 
-					action.Templates = d.GetConnectionTemplate("egress", "", "", pcn_types.ActionForward, ports)
+					//action.Templates = d.GetConnectionTemplate("egress", "", "", pcn_types.ActionForward, ports)
+					action.Templates = d.GetConnectionTemplate("ingress", "", "", pcn_types.ActionForward, ports)
 					action.Key = d.buildActionKey(action.PodLabels, action.NamespaceLabels, action.NamespaceName)
 					egressActions = append(egressActions, action)
 				}
@@ -910,7 +914,7 @@ func (d *DefaultPolicyParser) BuildActions(ingress []networking_v1.NetworkPolicy
 	return fwActions
 }
 
-func (d *DefaultPolicyParser) generateRulesForPod(podsFound []core_v1.Pod, pod *core_v1.Pod, generatedPorts []pcn_types.ProtoPort, direction string) pcn_types.ParsedRules {
+/*func (d *DefaultPolicyParser) generateRulesForPod(podsFound []core_v1.Pod, pod *core_v1.Pod, generatedPorts []pcn_types.ProtoPort, direction string) pcn_types.ParsedRules {
 	generatedIngress := []k8sfirewall.ChainRule{}
 	generatedEgress := []k8sfirewall.ChainRule{}
 
@@ -1008,4 +1012,4 @@ func (d *DefaultPolicyParser) generateRulesForPod(podsFound []core_v1.Pod, pod *
 		Ingress: generatedIngress,
 		Egress:  generatedEgress,
 	}
-}
+}*/
