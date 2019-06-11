@@ -345,13 +345,17 @@ func createFirewall(portName, ip string) error {
 	log.Infoln("firewall", name, "successfully created")
 
 	//	Switch to forward for both ingress and egress
-	/*if response, err := fwAPI.UpdateFirewallChainDefaultByID(nil, name, "ingress", "forward"); err != nil {
+	//	NOTE: these two function have been modified: on previous version it worked, but on this one it does not.
+	//	By looking at it with wireshark, I noticed the forward was not escaped in the request body,
+	// 	so I modified it with a quick, dirty and very ugly fix.
+	//	Take a look at utils/k8sfirewall/api_firewall.go.
+	if response, err := fwAPI.UpdateFirewallChainDefaultByID(nil, name, "ingress", "forward"); err != nil {
 		log.Errorln("Could not set default ingress action to forward for firewall", name, ":", err, response)
 	}
 
 	if response, err := fwAPI.UpdateFirewallChainDefaultByID(nil, name, "egress", "forward"); err != nil {
 		log.Errorln("Could not set default egress action to forward for firewall", name, ":", err, response)
-	}*/
+	}
 
 	//	Set it async
 	if response, err := fwAPI.UpdateFirewallInteractiveByID(nil, name, false); err != nil {
