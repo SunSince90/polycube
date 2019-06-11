@@ -844,13 +844,15 @@ func (d *FirewallManager) reactToPod(event pcn_types.EventType, pod *core_v1.Pod
 
 		//	Build rules according to the policy's priority
 		for policy, rules := range actions.actions {
+			// first calculate the priority
+			iStartFrom, eStartFrom := d.calculateInsertionIDs(policy)
+			log.Infoln("###reacting", iStartFrom, eStartFrom)
+
+			//	Then format the rules
 			ingressRules, egressRules := d.buildIDs(policy, ip, rules.Ingress, rules.Egress)
 			ingress = append(ingress, ingressRules...)
 			egress = append(egress, egressRules...)
 
-			// calculate the priority
-			iStartFrom, eStartFrom := d.calculateInsertionIDs(policy)
-			log.Infoln("###reacting", iStartFrom, eStartFrom)
 			//	Now inject the rules in all firewalls linked.
 			//	This usually is a matter of 1-2 rules, so no need to do this in a separate goroutine.
 			for _, f := range d.linkedPods {
