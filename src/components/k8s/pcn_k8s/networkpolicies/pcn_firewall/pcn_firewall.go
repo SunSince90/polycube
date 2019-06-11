@@ -334,8 +334,9 @@ func (d *FirewallManager) EnforcePolicy(policyName, policyType string, policyTim
 	//	Set its priority
 	//-------------------------------------
 
+	log.Infoln("###before setting policy priority")
 	iStartFrom, eStartFrom := d.setPolicyPriority(policyName, policyTime)
-
+	log.Infoln("###aftersetting policy priority", iStartFrom, eStartFrom)
 	//-------------------------------------
 	//	Inject the rules on each firewall
 	//-------------------------------------
@@ -646,6 +647,8 @@ func (d *FirewallManager) buildIDs(policyName, target string, ingress, egress []
 			if len(target) > 0 {
 				ingress[i].Src = target
 			}
+
+			d.ingressRules[policyName] = append(d.ingressRules[policyName], ingress[i])
 		}
 	}()
 
@@ -677,6 +680,8 @@ func (d *FirewallManager) buildIDs(policyName, target string, ingress, egress []
 			if len(target) > 0 {
 				egress[i].Src = target
 			}
+
+			d.egressRules[policyName] = append(d.egressRules[policyName], egress[i])
 		}
 	}()
 
