@@ -334,9 +334,8 @@ func (d *FirewallManager) EnforcePolicy(policyName, policyType string, policyTim
 	//	Set its priority
 	//-------------------------------------
 
-	log.Infoln("###before setting policy priority")
 	iStartFrom, eStartFrom := d.setPolicyPriority(policyName, policyTime)
-	log.Infoln("###aftersetting policy priority", iStartFrom, eStartFrom)
+
 	//-------------------------------------
 	//	Inject the rules on each firewall
 	//-------------------------------------
@@ -851,7 +850,7 @@ func (d *FirewallManager) reactToPod(event pcn_types.EventType, pod *core_v1.Pod
 
 			// calculate the priority
 			iStartFrom, eStartFrom := d.calculateInsertionIDs(policy)
-
+			log.Infoln("###reacting", iStartFrom, eStartFrom)
 			//	Now inject the rules in all firewalls linked.
 			//	This usually is a matter of 1-2 rules, so no need to do this in a separate goroutine.
 			for _, f := range d.linkedPods {
