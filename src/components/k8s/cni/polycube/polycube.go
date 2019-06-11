@@ -342,19 +342,23 @@ func createFirewall(portName, ip string) error {
 		return err
 	}
 
+	log.Infoln("firewall", name, "successfully created")
+
 	//	Switch to forward for both ingress and egress
-	if response, err := fwAPI.UpdateFirewallChainDefaultByID(nil, name, "ingress", "forward"); err != nil {
+	/*if response, err := fwAPI.UpdateFirewallChainDefaultByID(nil, name, "ingress", "forward"); err != nil {
 		log.Errorln("Could not set default ingress action to forward for firewall", name, ":", err, response)
 	}
 
 	if response, err := fwAPI.UpdateFirewallChainDefaultByID(nil, name, "egress", "forward"); err != nil {
 		log.Errorln("Could not set default egress action to forward for firewall", name, ":", err, response)
-	}
+	}*/
 
 	//	Set it async
 	if response, err := fwAPI.UpdateFirewallInteractiveByID(nil, name, false); err != nil {
 		log.Errorf("Could not set interactive to false on firewall %s: %+v, %s\n", name, response, err)
 	}
+
+	log.Infoln("firewall", name, "successfully set to async")
 
 	//	Attach it
 	//	TODO: generate swagger api for this
