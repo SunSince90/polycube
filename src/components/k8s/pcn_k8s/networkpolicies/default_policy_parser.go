@@ -355,7 +355,8 @@ func (d *DefaultPolicyParser) insertPorts(generatedIngressRules, generatedEgress
 			rule := generatedIngressRules[i]
 			for _, generatedPort := range generatedPorts {
 				edited := rule
-				edited.Dport = generatedPort.Port
+				//edited.Dport = generatedPort.Port
+				edited.Sport = generatedPort.Port
 				edited.L4proto = generatedPort.Protocol
 				parsed.Ingress = append(parsed.Ingress, edited)
 			}
@@ -368,7 +369,8 @@ func (d *DefaultPolicyParser) insertPorts(generatedIngressRules, generatedEgress
 			rule := generatedEgressRules[i]
 			for _, generatedPort := range generatedPorts {
 				edited := rule
-				edited.Sport = generatedPort.Port
+				//edited.Sport = generatedPort.Port
+				edited.Dport = generatedPort.Port
 				edited.L4proto = generatedPort.Protocol
 				parsed.Egress = append(parsed.Egress, edited)
 			}
@@ -463,10 +465,12 @@ func (d *DefaultPolicyParser) ParseIPBlock(block *networking_v1.IPBlock, k8sDire
 		}
 
 		if k8sDirection == "ingress" {
-			exceptionRule.Src = exception
+			//exceptionRule.Src = exception
+			exceptionRule.Dst = exception
 			parsed.Ingress = append(parsed.Ingress, exceptionRule)
 		} else {
-			exceptionRule.Dst = exception
+			exceptionRule.Src = exception
+			//exceptionRule.Dst = exception
 			parsed.Egress = append(parsed.Egress, exceptionRule)
 		}
 	}
@@ -710,20 +714,26 @@ func (d *DefaultPolicyParser) GetConnectionTemplate(direction, src, dst, action 
 	oneRule := make([]k8sfirewall.ChainRule, 1)
 
 	twoRules[0] = k8sfirewall.ChainRule{
-		Src:       src,
-		Dst:       dst,
+		/*Src:       src,
+		Dst:       dst,*/
+		Src:       dst,
+		Dst:       src,
 		Action:    action,
 		Conntrack: pcn_types.ConnTrackNew,
 	}
 	twoRules[1] = k8sfirewall.ChainRule{
-		Src:       src,
-		Dst:       dst,
+		/*Src:       src,
+		Dst:       dst,*/
+		Src:       dst,
+		Dst:       src,
 		Action:    action,
 		Conntrack: pcn_types.ConnTrackEstablished,
 	}
 	oneRule[0] = k8sfirewall.ChainRule{
-		Src:       dst,
-		Dst:       src,
+		Src: src,
+		Dst: dst,
+		/*Src:       dst,
+		Dst:       src,*/
 		Action:    action,
 		Conntrack: pcn_types.ConnTrackEstablished,
 	}
