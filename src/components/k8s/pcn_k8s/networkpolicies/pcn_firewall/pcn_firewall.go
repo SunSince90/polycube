@@ -1,6 +1,7 @@
 package pcnfirewall
 
 import (
+	"strings"
 	"sync"
 	"time"
 
@@ -734,6 +735,8 @@ func (d *FirewallManager) injectRules(firewall, direction string, rules []k8sfir
 	//	Inject & apply
 	//-------------------------------------
 
+	me := strings.Split(firewall, "-")[1]
+
 	// We are using the insert call here, which adds the rule on the startFrom id and pushes the other rules downwards.
 	// In order to preserve original order, we're going to start injecting from the last to the first.
 
@@ -741,10 +744,18 @@ func (d *FirewallManager) injectRules(firewall, direction string, rules []k8sfir
 	for i := len - 1; i > -1; i-- {
 		ruleToInsert := k8sfirewall.ChainInsertInput(rules[i])
 		ruleToInsert.Id = startFrom
+
+		//	This is useless but... let'd do it anyway
+		if direction == "ingress" {
+			ruleToInsert.Src = me
+		} else {
+			ruleToInsert.Dst = me
+		}
+
 		_, response, err := d.fwAPI.CreateFirewallChainInsertByID(nil, firewall, direction, ruleToInsert)
 		if err != nil {
 			l.Errorln("Error while trying to inject rule:", err, response)
-			//	This rule had an error, but we still gotta push the other ones man...
+			//	This rule had an error, but we still gotta push the other ones dude...
 			//return err
 		}
 	}
@@ -877,8 +888,8 @@ func (d *FirewallManager) reactToPod(event pcn_types.EventType, pod *core_v1.Pod
 			//	For each policy, go get all the rules in which this ip was present.
 			rulesToDelete := []k8sfirewall.ChainRule{}
 			rulesToKeep := []k8sfirewall.ChainRule{}
-			for policy := range d.ingressRules {
-				for _, rule := range rulesToDelete {
+			for policy, rules := range d.ingressRules {
+				for _, rule := range rules {
 					//if rule.Src == ip {
 					if rule.Dst == ip {
 						rulesToDelete = append(rulesToDelete, rule)
@@ -890,10 +901,21 @@ func (d *FirewallManager) reactToPod(event pcn_types.EventType, pod *core_v1.Pod
 				d.ingressRules[policy] = rulesToKeep
 			}
 
+			if len(rulesToDelete) < 1 {
+				return
+			}
+
+			//	Delete the rules on each linked pod
+			for _, ip := range d.linkedPods {
+				name := "fw-" + ip
+				d.deleteRules(name, "ingress", rulesToDelete)
+				d.applyRules(name, "ingress")
+			}
+
 			//	Is it even listed on my rules?
-			if len(rulesToDelete) > 0 {
+			/*if len(rulesToDelete) > 0 {
 				//ingressIDs := make([]k8sfirewall.ChainRule, len(rules))
-				/*i := 0
+				i := 0
 				for id, policy := range rules {
 					//ingressIDs[i] = id
 					if _, exists := d.ingressRules[policy]; exists {
@@ -906,15 +928,8 @@ func (d *FirewallManager) reactToPod(event pcn_types.EventType, pod *core_v1.Pod
 						}
 					}
 					i++
-				}*/
-
-				//	Delete the rules on each linked pod
-				for _, ip := range d.linkedPods {
-					name := "fw-" + ip
-					d.deleteRules(name, "ingress", rulesToDelete)
-					d.applyRules(name, "ingress")
 				}
-			}
+			}*/
 		}()
 
 		//	--- Egress
@@ -922,8 +937,8 @@ func (d *FirewallManager) reactToPod(event pcn_types.EventType, pod *core_v1.Pod
 			defer waiter.Done()
 			rulesToDelete := []k8sfirewall.ChainRule{}
 			rulesToKeep := []k8sfirewall.ChainRule{}
-			for policy, rulesToDelete := range d.egressRules {
-				for _, rule := range rulesToDelete {
+			for policy, rules := range d.egressRules {
+				for _, rule := range rules {
 					//if rule.Dst == ip {
 					if rule.Src == ip {
 						rulesToDelete = append(rulesToDelete, rule)
@@ -935,9 +950,20 @@ func (d *FirewallManager) reactToPod(event pcn_types.EventType, pod *core_v1.Pod
 				d.egressRules[policy] = rulesToKeep
 			}
 
+			if len(rulesToDelete) < 1 {
+				log.Debugln("###No rules to delete in egress")
+				return
+			}
+
+			for _, ip := range d.linkedPods {
+				name := "fw-" + ip
+				d.deleteRules(name, "egress", rulesToDelete)
+				d.applyRules(name, "egress")
+			}
+
 			//	Is it even listed on my rules?
-			if len(rulesToDelete) > 0 {
-				/*egressIDs := make([]int32, len(rules))
+			/*if len(rulesToDelete) > 0 {
+				egressIDs := make([]int32, len(rules))
 				i := 0
 				for id, policy := range rules {
 					egressIDs[i] = id
@@ -950,14 +976,8 @@ func (d *FirewallManager) reactToPod(event pcn_types.EventType, pod *core_v1.Pod
 						}
 					}
 					i++
-				}*/
-
-				for _, ip := range d.linkedPods {
-					name := "fw-" + ip
-					d.deleteRules(name, "egress", rulesToDelete)
-					d.applyRules(name, "egress")
 				}
-			}
+			}*/
 		}()
 
 		waiter.Wait()
@@ -1013,6 +1033,7 @@ func (d *FirewallManager) deleteAllPolicyRules(policy string) {
 		for _, ip := range d.linkedPods {
 			name := "fw-" + ip
 			d.deleteRules(name, "ingress", rules)
+			d.applyRules(name, "ingress")
 		}
 	}()
 
@@ -1048,6 +1069,7 @@ func (d *FirewallManager) deleteAllPolicyRules(policy string) {
 		for _, ip := range d.linkedPods {
 			name := "fw-" + ip
 			d.deleteRules(name, "egress", rules)
+			d.applyRules(name, "egress")
 		}
 	}()
 
@@ -1130,9 +1152,11 @@ func (d *FirewallManager) deleteRules(fw, direction string, rules []k8sfirewall.
 	l := log.NewEntry(d.log)
 	l.WithFields(log.Fields{"by": "FirewallManager-" + d.name, "method": "deleteRules()"})
 
+	me := strings.Split(fw, "-")[1]
+
 	// this is a fake deep copy-cast.
 	cast := func(rule k8sfirewall.ChainRule) k8sfirewall.ChainDeleteInput {
-		return k8sfirewall.ChainDeleteInput{
+		toReturn := k8sfirewall.ChainDeleteInput{
 			Src:         rule.Src,
 			Dst:         rule.Dst,
 			L4proto:     rule.L4proto,
@@ -1143,12 +1167,21 @@ func (d *FirewallManager) deleteRules(fw, direction string, rules []k8sfirewall.
 			Action:      rule.Action,
 			Description: rule.Description,
 		}
+
+		if direction == "ingress" {
+			toReturn.Src = me
+		} else {
+			toReturn.Dst = me
+		}
+
+		return toReturn
 	}
 
 	//	No need to do this with separate threads...
 	for _, rule := range rules {
 		// Delete the rule not by its ID, but by the fields it is composed of.
-		response, err := d.fwAPI.CreateFirewallChainDeleteByID(nil, fw, direction, cast(rule))
+		ruleToDelete := cast(rule)
+		response, err := d.fwAPI.CreateFirewallChainDeleteByID(nil, fw, direction, ruleToDelete)
 		if err != nil {
 			l.Errorf("Error while trying to delete this rule: %+v, in %s for firewall %s. Error %s, response: %+v\n", rule, direction, fw, err.Error(), response)
 		}
