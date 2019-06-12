@@ -645,7 +645,8 @@ func (d *FirewallManager) buildIDs(policyName, target string, ingress, egress []
 			newIngress[i] = rule
 			newIngress[i].Description = description
 			if len(target) > 0 {
-				newIngress[i].Src = target
+				//newIngress[i].Src = target
+				newIngress[i].Dst = target
 			}
 
 			d.ingressRules[policyName] = append(d.ingressRules[policyName], newIngress[i])
@@ -680,6 +681,7 @@ func (d *FirewallManager) buildIDs(policyName, target string, ingress, egress []
 			newEgress[i].Description = description
 			if len(target) > 0 {
 				newEgress[i].Src = target
+				//newEgress[i].Dst = target
 			}
 
 			d.egressRules[policyName] = append(d.egressRules[policyName], newEgress[i])
@@ -877,7 +879,8 @@ func (d *FirewallManager) reactToPod(event pcn_types.EventType, pod *core_v1.Pod
 			rulesToKeep := []k8sfirewall.ChainRule{}
 			for policy := range d.ingressRules {
 				for _, rule := range rulesToDelete {
-					if rule.Src == ip {
+					//if rule.Src == ip {
+					if rule.Dst == ip {
 						rulesToDelete = append(rulesToDelete, rule)
 					} else {
 						rulesToKeep = append(rulesToKeep, rule)
@@ -921,7 +924,8 @@ func (d *FirewallManager) reactToPod(event pcn_types.EventType, pod *core_v1.Pod
 			rulesToKeep := []k8sfirewall.ChainRule{}
 			for policy, rulesToDelete := range d.egressRules {
 				for _, rule := range rulesToDelete {
-					if rule.Dst == ip {
+					//if rule.Dst == ip {
+					if rule.Src == ip {
 						rulesToDelete = append(rulesToDelete, rule)
 					} else {
 						rulesToKeep = append(rulesToKeep, rule)
