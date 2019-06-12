@@ -121,7 +121,10 @@ func (d *DefaultPolicyParser) ParseIngress(rules []networking_v1.NetworkPolicyIn
 	if len(rules) < 1 {
 		//	Rules is empty: nothing is accepted
 
-		parsed.Ingress = append(parsed.Ingress, k8sfirewall.ChainRule{
+		/*parsed.Ingress = append(parsed.Ingress, k8sfirewall.ChainRule{
+			Action: pcn_types.ActionDrop,
+		})*/
+		parsed.Egress = append(parsed.Egress, k8sfirewall.ChainRule{
 			Action: pcn_types.ActionDrop,
 		})
 		return parsed
@@ -235,7 +238,10 @@ func (d *DefaultPolicyParser) ParseEgress(rules []networking_v1.NetworkPolicyEgr
 	//	No rules?
 	if len(rules) < 1 {
 		//	Rules is empty: nothing is accepted
-		parsed.Egress = append(parsed.Egress, k8sfirewall.ChainRule{
+		/*parsed.Egress = append(parsed.Egress, k8sfirewall.ChainRule{
+			Action: pcn_types.ActionDrop,
+		})*/
+		parsed.Ingress = append(parsed.Ingress, k8sfirewall.ChainRule{
 			Action: pcn_types.ActionDrop,
 		})
 		return parsed
