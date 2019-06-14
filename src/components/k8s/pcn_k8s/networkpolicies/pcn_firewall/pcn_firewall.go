@@ -832,6 +832,13 @@ func (d *FirewallManager) reactToPod(event pcn_types.EventType, pod *core_v1.Pod
 	d.lock.Lock()
 	defer d.lock.Unlock()
 
+	log.Printf("###event: %+v\n", event)
+	log.Printf("###podIP: %+v\n", pod.Status.PodIP)
+	log.Printf("###pod labels: %+v\n", pod.Labels)
+	log.Printf("###pod name: %+v\n", pod.Name)
+	log.Printf("###pod namespace: %+v\n", pod.Namespace)
+	log.Printf("###action key: %+v\n", actionKey)
+
 	//-------------------------------------
 	//	Update
 	//-------------------------------------
@@ -867,6 +874,7 @@ func (d *FirewallManager) reactToPod(event pcn_types.EventType, pod *core_v1.Pod
 			//	Now inject the rules in all firewalls linked.
 			//	This usually is a matter of 1-2 rules, so no need to do this in a separate goroutine.
 			for _, f := range d.linkedPods {
+				log.Println("injecting in fw-", ip)
 				name := "fw-" + f
 				d.injecter(name, ingress, egress, nil, iStartFrom, eStartFrom)
 			}
