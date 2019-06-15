@@ -259,13 +259,15 @@ func (d *FirewallManager) Unlink(pod *core_v1.Pod, then UnlinkOperation) (bool, 
 	defer d.lock.Unlock()
 
 	podUID := pod.UID
-	name := "fw-" + pod.Status.PodIP
 
 	_, ok := d.linkedPods[podUID]
 	if !ok {
 		//	This pod was not even linked
 		return false, len(d.linkedPods)
 	}
+
+	podIP := d.linkedPods[pod.UID]
+	name := "fw-" + podIP
 
 	//	Should I also destroy its firewall?
 	switch then {
@@ -805,14 +807,21 @@ func (d *FirewallManager) definePolicyActions(policyName string, actions []pcn_t
 				nsQuery.Labels = action.NamespaceLabels
 			}
 
-			//	Finally, susbcribe
+			//	Finally, susbcribe...
 			//	-- To update events
 			updateUnsub, err := d.podController.Subscribe(pcn_types.Update, podQuery, nsQuery, pcn_types.PodRunning, func(pod *core_v1.Pod) {
 				d.reactToPod(pcn_types.Update, pod, action.Key)
 			})
 			//	-- To delete events
-			deleteUnsub, err := d.podController.Subscribe(pcn_types.Delete, podQuery, nsQuery, pcn_types.PodAnyPhase, func(pod *core_v1.Pod) {
+			// 	UPDATE: on the latest version of the controllers, I use the tombstone to get dead resources, but the tombstone
+			//	obviously doesn't get any info about the IP the pod used to have: this subscribtion does not work anymore.
+			//	I know need to subscribe to *terminating* pods, they still have this info.
+			//	The issue is that terminating pod are considered as running pod, so they may still trigger some other update events.
+			/*deleteUnsub, err := d.podController.Subscribe(pcn_types.Delete, podQuery, nsQuery, pcn_types.PodAnyPhase, func(pod *core_v1.Pod) {
 				d.reactToPod(pcn_types.Delete, pod, "")
+			})*/
+			deleteUnsub, err := d.podController.Subscribe(pcn_types.Update, podQuery, nsQuery, pcn_types.PodTerminating, func(pod *core_v1.Pod) {
+				d.reactToPod(pcn_types.Delete, pod, action.Key)
 			})
 
 			if err == nil {
