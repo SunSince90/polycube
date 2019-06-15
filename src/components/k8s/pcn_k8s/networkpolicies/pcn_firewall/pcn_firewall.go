@@ -1176,8 +1176,21 @@ func (d *FirewallManager) deleteRules(fw, direction string, rules []k8sfirewall.
 	me := strings.Split(fw, "-")[1]
 
 	// this is a fake deep copy-cast.
-	cast := func(rule k8sfirewall.ChainRule, fwIP string) k8sfirewall.ChainDeleteInput {
-		toReturn := k8sfirewall.ChainDeleteInput{
+	cast := func(rule k8sfirewall.ChainRule) k8sfirewall.ChainDeleteInput {
+		l.Printf("###cast-me: %s", me)
+
+		src := rule.Src
+		dst := rule.Dst
+
+		if direction == "ingress" {
+			src = me
+		} else {
+			dst = me
+		}
+
+		return k8sfirewall.ChainDeleteInput{
+			Src:         src,
+			Dst:         dst,
 			L4proto:     rule.L4proto,
 			Sport:       rule.Sport,
 			Dport:       rule.Dport,
@@ -1186,22 +1199,13 @@ func (d *FirewallManager) deleteRules(fw, direction string, rules []k8sfirewall.
 			Action:      rule.Action,
 			Description: rule.Description,
 		}
-
-		if direction == "ingress" {
-			toReturn.Src = fwIP
-		} else {
-			toReturn.Dst = fwIP
-		}
-
-		return toReturn
 	}
 
 	//	No need to do this with separate threads...
 	for _, rule := range rules {
 		// Delete the rule not by its ID, but by the fields it is composed of.
-		ruleToDelete := cast(rule, me)
-		log.Printf("###going to delete rule %+v on fw-%s\n", ruleToDelete, me)
-		response, err := d.fwAPI.CreateFirewallChainDeleteByID(nil, fw, direction, ruleToDelete)
+		l.Printf("###going to delete rule %+v on fw-%s in %s\n", cast(rule), me, direction)
+		response, err := d.fwAPI.CreateFirewallChainDeleteByID(nil, fw, direction, cast(rule))
 		if err != nil {
 			l.Errorf("Error while trying to delete this rule: %+v, in %s for firewall %s. Error %s, response: %+v\n", rule, direction, fw, err.Error(), response)
 		}
