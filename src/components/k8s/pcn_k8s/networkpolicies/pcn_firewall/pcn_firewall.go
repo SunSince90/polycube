@@ -898,6 +898,8 @@ func (d *FirewallManager) reactToPod(event pcn_types.EventType, pod *core_v1.Pod
 			rulesToKeep := []k8sfirewall.ChainRule{}
 			for policy, rules := range d.ingressRules {
 				for _, rule := range rules {
+					log.Printf("###need to delete %s in ingress, len policy %s %d", ip, policy, len(rules))
+					log.Printf("###checking in ingress %s against this rule %s", ip, rule.Dst)
 					//if rule.Src == ip {
 					if rule.Dst == ip {
 						rulesToDelete = append(rulesToDelete, rule)
@@ -914,8 +916,8 @@ func (d *FirewallManager) reactToPod(event pcn_types.EventType, pod *core_v1.Pod
 			}
 
 			//	Delete the rules on each linked pod
-			for _, ip := range d.linkedPods {
-				name := "fw-" + ip
+			for _, fwIP := range d.linkedPods {
+				name := "fw-" + fwIP
 				d.deleteRules(name, "ingress", rulesToDelete)
 				d.applyRules(name, "ingress")
 			}
@@ -947,6 +949,8 @@ func (d *FirewallManager) reactToPod(event pcn_types.EventType, pod *core_v1.Pod
 			rulesToKeep := []k8sfirewall.ChainRule{}
 			for policy, rules := range d.egressRules {
 				for _, rule := range rules {
+					log.Printf("###need to delete %s in egress, len policy %s %d", ip, policy, len(rules))
+					log.Printf("###checking in egress %s against this rule %s", ip, rule.Src)
 					//if rule.Dst == ip {
 					if rule.Src == ip {
 						rulesToDelete = append(rulesToDelete, rule)
@@ -963,8 +967,8 @@ func (d *FirewallManager) reactToPod(event pcn_types.EventType, pod *core_v1.Pod
 				return
 			}
 
-			for _, ip := range d.linkedPods {
-				name := "fw-" + ip
+			for _, fwIP := range d.linkedPods {
+				name := "fw-" + fwIP
 				d.deleteRules(name, "egress", rulesToDelete)
 				d.applyRules(name, "egress")
 			}
@@ -1235,6 +1239,7 @@ func (d *FirewallManager) applyRules(firewall, direction string) (bool, error) {
 
 // destroyFw destroy a firewall linked by this firewall manager
 func (d *FirewallManager) destroyFw(name string) error {
+	log.Println("###going to destroy firewall with name", name)
 	_, err := d.fwAPI.DeleteFirewallByID(nil, name)
 	return err
 }
