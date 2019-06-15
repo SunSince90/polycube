@@ -280,7 +280,7 @@ func (d *FirewallManager) Unlink(pod *core_v1.Pod, then UnlinkOperation) (bool, 
 		}
 	case DestroyFirewall:
 		if err := d.destroyFw(name); err != nil {
-			l.Warningln("Could not delete firewall for the provided pod.")
+			l.Warningln("Could not delete firewall for the provided pod:", err)
 		}
 	}
 
@@ -874,7 +874,7 @@ func (d *FirewallManager) reactToPod(event pcn_types.EventType, pod *core_v1.Pod
 			//	Now inject the rules in all firewalls linked.
 			//	This usually is a matter of 1-2 rules, so no need to do this in a separate goroutine.
 			for _, f := range d.linkedPods {
-				log.Println("injecting in fw-", ip)
+				log.Println("injecting in fw-", f)
 				name := "fw-" + f
 				d.injecter(name, ingress, egress, nil, iStartFrom, eStartFrom)
 			}
@@ -1165,8 +1165,6 @@ func (d *FirewallManager) deleteRules(fw, direction string, rules []k8sfirewall.
 	// this is a fake deep copy-cast.
 	cast := func(rule k8sfirewall.ChainRule) k8sfirewall.ChainDeleteInput {
 		toReturn := k8sfirewall.ChainDeleteInput{
-			Src:         rule.Src,
-			Dst:         rule.Dst,
 			L4proto:     rule.L4proto,
 			Sport:       rule.Sport,
 			Dport:       rule.Dport,
@@ -1189,10 +1187,12 @@ func (d *FirewallManager) deleteRules(fw, direction string, rules []k8sfirewall.
 	for _, rule := range rules {
 		// Delete the rule not by its ID, but by the fields it is composed of.
 		ruleToDelete := cast(rule)
+		log.Printf("###going to delete rule %+v\n", ruleToDelete)
 		response, err := d.fwAPI.CreateFirewallChainDeleteByID(nil, fw, direction, ruleToDelete)
 		if err != nil {
 			l.Errorf("Error while trying to delete this rule: %+v, in %s for firewall %s. Error %s, response: %+v\n", rule, direction, fw, err.Error(), response)
 		}
+		log.Printf("###response %+v\n", response)
 	}
 
 	return nil
