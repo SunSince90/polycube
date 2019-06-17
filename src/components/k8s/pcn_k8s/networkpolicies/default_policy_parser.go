@@ -124,9 +124,10 @@ func (d *DefaultPolicyParser) ParseIngress(rules []networking_v1.NetworkPolicyIn
 		/*parsed.Ingress = append(parsed.Ingress, k8sfirewall.ChainRule{
 			Action: pcn_types.ActionDrop,
 		})*/
-		parsed.Egress = append(parsed.Egress, k8sfirewall.ChainRule{
+		//	The default action is drop, anyway
+		/*parsed.Egress = append(parsed.Egress, k8sfirewall.ChainRule{
 			Action: pcn_types.ActionDrop,
-		})
+		})*/
 		return parsed
 	}
 
@@ -241,9 +242,9 @@ func (d *DefaultPolicyParser) ParseEgress(rules []networking_v1.NetworkPolicyEgr
 		/*parsed.Egress = append(parsed.Egress, k8sfirewall.ChainRule{
 			Action: pcn_types.ActionDrop,
 		})*/
-		parsed.Ingress = append(parsed.Ingress, k8sfirewall.ChainRule{
+		/*parsed.Ingress = append(parsed.Ingress, k8sfirewall.ChainRule{
 			Action: pcn_types.ActionDrop,
-		})
+		})*/
 		return parsed
 	}
 
