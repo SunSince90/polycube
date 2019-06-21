@@ -18,11 +18,13 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
 	"net"
+	"net/http"
 	"os"
 	"runtime"
 
@@ -36,6 +38,7 @@ import (
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
 
+	k8sfirewall "github.com/SunSince90/polycube/src/components/k8s/utils/k8sfirewall"
 	k8switch "github.com/polycube-network/polycube/src/components/k8s/utils/k8switch"
 
 	log "github.com/sirupsen/logrus"
@@ -54,12 +57,13 @@ type gwInfo struct {
 }
 
 const (
-	basePath           = "http://127.0.0.1:9000/polycube/v1"
+	basePath             = "http://127.0.0.1:9000/polycube/v1"
 	polycubeK8sInterface = "pcn_k8s"
 )
 
 var (
 	k8switchAPI *k8switch.K8switchApiService
+	fwAPI       *k8sfirewall.FirewallApiService
 )
 
 func init() {
@@ -73,6 +77,11 @@ func init() {
 	cfgK8switch := k8switch.Configuration{BasePath: basePath}
 	srK8switch := k8switch.NewAPIClient(&cfgK8switch)
 	k8switchAPI = srK8switch.K8switchApi
+
+	//	for firewall creation
+	cfgK8firewall := k8sfirewall.Configuration{BasePath: basePath}
+	srK8firewall := k8sfirewall.NewAPIClient(&cfgK8firewall)
+	fwAPI = srK8firewall.FirewallApi
 }
 
 func loadNetConf(bytes []byte) (*NetConf, string, error) {
@@ -307,7 +316,66 @@ func cmdAdd(args *skel.CmdArgs) error {
 	}
 
 	success = true
+
+	//	If everything's all right, then create the firewall
+	if err := createFirewall(portName, ip.String()); err != nil {
+		log.Errorln("Could not create firewall.")
+	}
+
 	return types.PrintResult(result, cniVersion)
+}
+
+func createFirewall(portName, ip string) error {
+	//	At this point we don't have the UUID of the pod.
+	//	So, the only way we have to create the firewall and to be able to reference it later, is by using its IP.
+	//	So its name will be fw-ip
+	name := "fw-" + ip
+
+	//	Already exists?
+	//fw, _, err := fwAPI.ReadFirewallByID(nil, name)
+
+	//	First create the firewall
+	if response, err := fwAPI.CreateFirewallByID(nil, name, k8sfirewall.Firewall{
+		Name: name,
+	}); err != nil {
+		log.Errorln("An error occurred while trying to create firewall with name:", name, err, response)
+		return err
+	}
+
+	log.Infoln("firewall", name, "successfully created")
+
+	//	Switch to forward for both ingress and egress
+	//	NOTE: these two function have been modified: on previous version it worked, but on this one it does not.
+	//	By looking at it with wireshark, I noticed the forward was not escaped in the request body,
+	// 	so I modified it with a quick, dirty and very ugly fix.
+	//	Take a look at utils/k8sfirewall/api_firewall.go.
+	if response, err := fwAPI.UpdateFirewallChainDefaultByID(nil, name, "ingress", "forward"); err != nil {
+		log.Errorln("Could not set default ingress action to forward for firewall", name, ":", err, response)
+	}
+
+	if response, err := fwAPI.UpdateFirewallChainDefaultByID(nil, name, "egress", "forward"); err != nil {
+		log.Errorln("Could not set default egress action to forward for firewall", name, ":", err, response)
+	}
+
+	//	Set it async
+	if response, err := fwAPI.UpdateFirewallInteractiveByID(nil, name, false); err != nil {
+		log.Errorf("Could not set interactive to false on firewall %s: %+v, %s\n", name, response, err)
+	}
+
+	log.Infoln("firewall", name, "successfully set to async")
+
+	//	Attach it
+	//	TODO: generate swagger api for this
+	port := "k8switch0:" + portName
+	var jsonStr = []byte(`{"cube":"` + name + `", "port":"` + port + `"}`)
+	resp, err := http.Post("http://localhost:9000/polycube/v1/attach", "application/json", bytes.NewBuffer(jsonStr))
+	if err != nil {
+		log.Infoln("Could not attach firewall:", err, resp)
+		return err
+	}
+
+	log.Infoln("Successfully attached firewall.")
+	return nil
 }
 
 func cmdDel(args *skel.CmdArgs) error {
