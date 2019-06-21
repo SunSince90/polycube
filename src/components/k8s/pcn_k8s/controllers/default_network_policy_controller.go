@@ -237,6 +237,20 @@ func (npc *DefaultNetworkPolicyController) processPolicy(event pcn_types.Event) 
 		}
 	}
 
+	//-------------------------------------
+	//	Dispatch the event
+	//-------------------------------------
+
+	switch event.Type {
+
+	case pcn_types.New:
+		npc.dispatchers.new.Dispatch(policy)
+	case pcn_types.Update:
+		npc.dispatchers.update.Dispatch(policy)
+	case pcn_types.Delete:
+		npc.dispatchers.delete.Dispatch(policy)
+	}
+
 	return nil
 }
 
@@ -257,4 +271,66 @@ func (npc *DefaultNetworkPolicyController) Stop() {
 	npc.dispatchers.delete.CleanUp()
 
 	l.Infoln("Default network policy controller exited.")
+}
+
+/*Subscribe executes the function consumer when the event event is triggered. It returns an error if the event type does not exist.
+It returns a function to call when you want to stop tracking that event.*/
+func (npc *DefaultNetworkPolicyController) Subscribe(event pcn_types.EventType, consumer func(*networking_v1.NetworkPolicy)) (func(), error) {
+
+	//	Prepare the function to be executed
+	consumerFunc := (func(item interface{}) {
+
+		//	First, cast the item to a network policy, so that the consumer will receive exactly what it wants...
+		policy := item.(*networking_v1.NetworkPolicy)
+
+		//	Then, execute the consumer in a separate thread.
+		//	NOTE: this step can also be done in the event dispatcher, but I want it to make them oblivious of the type they're handling.
+		//	This way, the event dispatcher is as general as possible (also, it is not their concern to cast objects.)
+		go consumer(policy)
+	})
+
+	//	What event are you subscribing to?
+	switch event {
+
+	//-------------------------------------
+	//	New event
+	//-------------------------------------
+
+	case pcn_types.New:
+		id := npc.dispatchers.new.Add(consumerFunc)
+
+		return func() {
+			npc.dispatchers.new.Remove(id)
+		}, nil
+
+	//-------------------------------------
+	//	Update event
+	//-------------------------------------
+
+	case pcn_types.Update:
+		id := npc.dispatchers.update.Add(consumerFunc)
+
+		return func() {
+			npc.dispatchers.update.Remove(id)
+		}, nil
+
+	//-------------------------------------
+	//	Delete Event
+	//-------------------------------------
+
+	case pcn_types.Delete:
+		id := npc.dispatchers.delete.Add(consumerFunc)
+
+		return func() {
+			npc.dispatchers.delete.Remove(id)
+		}, nil
+
+	//-------------------------------------
+	//	Undefined event
+	//-------------------------------------
+
+	default:
+		return nil, fmt.Errorf("Undefined event type")
+	}
+
 }
