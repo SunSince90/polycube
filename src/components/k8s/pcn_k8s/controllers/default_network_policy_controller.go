@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -252,6 +253,53 @@ func (npc *DefaultNetworkPolicyController) processPolicy(event pcn_types.Event) 
 	}
 
 	return nil
+}
+
+// GetPolicies returns a list of network policies that match the specified criteria.
+// Return an empty list if no network policies have been found or an error occurred.
+// In the latter case, it also returns the error occurred.
+func (npc *DefaultNetworkPolicyController) GetPolicies(query pcn_types.ObjectQuery, namespace string) ([]networking_v1.NetworkPolicy, error) {
+
+	//-------------------------------------
+	//	Basic query checks
+	//-------------------------------------
+
+	if query.By != "name" {
+		//	As of now, network policies can only be found by name.
+		return []networking_v1.NetworkPolicy{}, errors.New("Query type not supported")
+	}
+
+	if len(query.Name) < 1 {
+		return []networking_v1.NetworkPolicy{}, errors.New("No name provided")
+	}
+
+	if len(namespace) < 1 {
+		return []networking_v1.NetworkPolicy{}, errors.New("No namespace provided")
+	}
+
+	//-------------------------------------
+	//	Find by name
+	//-------------------------------------
+
+	lister := npc.clientset.NetworkingV1().NetworkPolicies(namespace)
+	if namespace == "*" {
+		namespace = meta_v1.NamespaceAll
+	}
+	//	All default policies?
+	if query.Name == "*" {
+		list, err := lister.List(meta_v1.ListOptions{})
+		if err != nil {
+			return []networking_v1.NetworkPolicy{}, err
+		}
+		return list.Items, nil
+	}
+
+	//	Specific name?
+	list, err := lister.List(meta_v1.ListOptions{FieldSelector: "metadata.name=" + query.Name})
+	if err != nil {
+		return []networking_v1.NetworkPolicy{}, err
+	}
+	return list.Items, nil
 }
 
 // Stop stops the controller
