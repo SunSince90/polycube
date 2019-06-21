@@ -23,6 +23,8 @@
 #include "polycubed_core.h"
 extern polycube::polycubed::PolycubedCore *core;
 
+const std::string prefix_port = "ns_port_";
+
 namespace polycube {
 namespace polycubed {
 
@@ -49,11 +51,10 @@ uint16_t Port::index() const {
 }
 
 uint16_t Port::get_index() const {
-  std::lock_guard<std::mutex> guard(port_mutex_);
-  return __get_index();
+  return port_index_;
 }
 
-uint16_t Port::__get_index() const {
+uint16_t Port::calculate_index() const {
   // check if there is ingress-enabled transparent cube
   for (auto it = cubes_.rbegin(); it != cubes_.rend(); ++it) {
     auto index = (*it)->get_index(ProgramType::INGRESS);
@@ -162,6 +163,13 @@ void Port::set_conf(const nlohmann::json &conf) {
   if (conf.count("peer")) {
     set_peer(conf.at("peer").get<std::string>());
   }
+
+  // attach transparent cubes present on the port
+  if (conf.count("tcubes")) {
+    for (auto &cube : conf.at("tcubes")) {
+      core->attach(cube.get<std::string>(), get_path(), "last", "");
+    }
+  }
 }
 
 nlohmann::json Port::to_json() const {
@@ -171,6 +179,11 @@ nlohmann::json Port::to_json() const {
   val["uuid"] = uuid().str();
   val["status"] = port_status_to_string(get_status());
   val["peer"] = peer();
+
+  const auto &cubes_names = get_cubes_names();
+  if (cubes_names.size()) {
+    val["tcubes"] = cubes_names;
+  }
 
   return val;
 }
@@ -198,6 +211,12 @@ void Port::send_packet_out(const std::vector<uint8_t> &packet,
     module = peer_port_->get_index();
   }
   c.send_packet_to_cube(module, port, packet);
+}
+
+void Port::send_packet_ns(const std::vector<uint8_t> &packet) {
+  std::string name_ns_port = prefix_port + name_;
+  std::shared_ptr<PortIface> port_ns = parent_.get_port(name_ns_port);
+  port_ns->send_packet_out(packet);
 }
 
 void Port::update_indexes() {
@@ -230,9 +249,11 @@ void Port::update_indexes() {
     }
   }
 
+  port_index_ = calculate_index();
+
   // CASE4: peer -> cube[N-1]
   if (peer_port_) {
-    peer_port_->set_next_index(__get_index());
+    peer_port_->set_next_index(port_index_);
   }
 
   // egress chain: port -> cubes[0] -> ... -> cube[N -1] -> peer
