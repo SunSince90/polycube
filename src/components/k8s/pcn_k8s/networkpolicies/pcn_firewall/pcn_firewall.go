@@ -20,8 +20,9 @@ import (
 // PcnFirewall is the interface of the firewall manager.
 type PcnFirewall interface {
 	Link(*core_v1.Pod) bool
-	Unlink(*core_v1.Pod) (bool, int)
+	Unlink(*core_v1.Pod, UnlinkOperation) (bool, int)
 	LinkedPods() map[k8s_types.UID]string
+	IsPolicyEnforced(string) bool
 	Selector() (map[string]string, string)
 	Name() string
 	EnforcePolicy(string, string, meta_v1.Time, []k8sfirewall.ChainRule, []k8sfirewall.ChainRule)
@@ -212,8 +213,9 @@ func (d *FirewallManager) Link(pod *core_v1.Pod) bool {
 }
 
 // Unlink removes the provided pod from the list of monitored ones by this firewall manager.
+// The second arguments specifies if the pod's firewall should be cleaned or destroyed.
 // It returns FALSE if the pod was not among the monitored ones, and the number of remaining pods linked.
-func (d *FirewallManager) Unlink(pod *core_v1.Pod) (bool, int) {
+func (d *FirewallManager) Unlink(pod *core_v1.Pod, then UnlinkOperation) (bool, int) {
 	l := log.NewEntry(d.log)
 	l.WithFields(log.Fields{"by": "FirewallManager-" + d.name, "method": "Unlink(" + pod.Name + ")"})
 
@@ -226,6 +228,26 @@ func (d *FirewallManager) Unlink(pod *core_v1.Pod) (bool, int) {
 	if !ok {
 		//	This pod was not even linked
 		return false, len(d.linkedPods)
+	}
+
+	podIP := d.linkedPods[pod.UID]
+	name := "fw-" + podIP
+
+	//	Should I also destroy its firewall?
+	switch then {
+	case CleanFirewall:
+		if i, e := d.cleanFw(name); i != nil || e != nil {
+			l.Warningln("Could not properly clean firewall for the provided pod.")
+		} else {
+			d.updateDefaultAction(name, "ingress", pcn_types.ActionForward)
+			d.applyRules(name, "ingress")
+			d.updateDefaultAction(name, "egress", pcn_types.ActionForward)
+			d.applyRules(name, "egress")
+		}
+	case DestroyFirewall:
+		if err := d.destroyFw(name); err != nil {
+			l.Warningln("Could not delete firewall for the provided pod:", err)
+		}
 	}
 
 	delete(d.linkedPods, podUID)
@@ -633,6 +655,15 @@ func (d *FirewallManager) injectRules(firewall, direction string, rules []k8sfir
 	return nil
 }
 
+// IsPolicyEnforced returns true if this firewall enforces this policy
+func (d *FirewallManager) IsPolicyEnforced(name string) bool {
+	d.lock.Lock()
+	defer d.lock.Unlock()
+
+	_, exists := d.policyTypes[name]
+	return exists
+}
+
 // Selector returns the namespace and labels of the pods monitored by this firewall manager
 func (d *FirewallManager) Selector() (map[string]string, string) {
 	return d.selector.labels, d.selector.namespace
@@ -657,4 +688,25 @@ func (d *FirewallManager) updateDefaultAction(firewall, direction, to string) er
 func (d *FirewallManager) applyRules(firewall, direction string) (bool, error) {
 	out, _, err := d.fwAPI.CreateFirewallChainApplyRulesByID(nil, firewall, direction)
 	return out.Result, err
+}
+
+// destroyFw destroy a firewall linked by this firewall manager
+func (d *FirewallManager) destroyFw(name string) error {
+	_, err := d.fwAPI.DeleteFirewallByID(nil, name)
+	return err
+}
+
+// cleanFw cleans the firewall linked by this firewall manager
+func (d *FirewallManager) cleanFw(name string) (error, error) {
+	var iErr error
+	var eErr error
+
+	if _, err := d.fwAPI.DeleteFirewallChainRuleListByID(nil, name, "ingress"); err != nil {
+		iErr = err
+	}
+	if _, err := d.fwAPI.DeleteFirewallChainRuleListByID(nil, name, "egress"); err != nil {
+		eErr = err
+	}
+
+	return iErr, eErr
 }
