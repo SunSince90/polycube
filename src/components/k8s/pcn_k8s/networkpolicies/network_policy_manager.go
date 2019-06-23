@@ -14,11 +14,14 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	core_v1 "k8s.io/api/core/v1"
+	networking_v1 "k8s.io/api/networking/v1"
+	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8s_types "k8s.io/apimachinery/pkg/types"
 )
 
 // PcnNetworkPolicyManager is a network policy manager
 type PcnNetworkPolicyManager interface {
+	DeployK8sPolicy(*networking_v1.NetworkPolicy)
 }
 
 // NetworkPolicyManager is the implementation of the policy manager
@@ -82,6 +85,15 @@ func StartNetworkPolicyManager(basePath string, dnpc *pcn_controllers.DefaultNet
 	}
 
 	//-------------------------------------
+	//	Subscribe to policies events
+	//-------------------------------------
+
+	manager.defaultPolicyParser = newDefaultPolicyParser(podController)
+
+	//	Deploy a new k8s policy
+	dnpc.Subscribe(pcn_types.New, manager.DeployK8sPolicy)
+
+	//-------------------------------------
 	//	Subscribe to pod events
 	//-------------------------------------
 
@@ -90,6 +102,85 @@ func StartNetworkPolicyManager(basePath string, dnpc *pcn_controllers.DefaultNet
 	podController.Subscribe(pcn_types.Delete, pcn_types.ObjectQuery{Node: nodeName}, pcn_types.ObjectQuery{}, pcn_types.PodAnyPhase, manager.manageDeletedPod)
 
 	return &manager
+}
+
+// DeployK8sPolicy deploys a kubernetes policy in the appropriate firewall managers
+func (manager *NetworkPolicyManager) DeployK8sPolicy(policy *networking_v1.NetworkPolicy) {
+	l := log.NewEntry(manager.log)
+	l.WithFields(log.Fields{"by": PM, "method": "DeployK8sPolicy(" + policy.Name + ")"})
+
+	manager.lock.Lock()
+	defer manager.lock.Unlock()
+
+	if len(manager.localFirewalls) < 1 {
+		l.Infoln("There are no active firewall managers in this node. Will stop here.")
+		return
+	}
+
+	//-------------------------------------
+	//	Parse, Deploy & Set Actions
+	//-------------------------------------
+	var waiter sync.WaitGroup
+	waiter.Add(len(manager.localFirewalls))
+
+	//	We are going to loop through all firewall managers, not pods: this way we can further reduce iterations.
+	//	Example: 50 similar pods are all managed by the same firewall manager => this is done only once, not 50 times!
+	//	Each firewall manager will deploy this policy in its own go routine: no need to do this sequentially.
+	for _, fwManager := range manager.localFirewalls {
+		go func(fw pcn_firewall.PcnFirewall) {
+			defer waiter.Done()
+			labels, ns := fw.Selector()
+
+			//	Create a fake pod, so that we can see if this firewall manager should enforce this new policy
+			pod := core_v1.Pod{
+				ObjectMeta: meta_v1.ObjectMeta{
+					Namespace: ns,
+					Labels:    labels,
+				},
+			}
+			if manager.defaultPolicyParser.DoesPolicyAffectPod(policy, &pod) {
+				manager.deployK8sPolicyToFw(policy, fw)
+			}
+		}(fwManager)
+	}
+
+	//	I thought this was useless, but in reality it is very useful! We have to release the lock only if all of them deployed the policy!
+	//	Otherwise we would have inconsistencies in rules (and of course race conditions) if the same policy/other policies is/are deployed.
+	waiter.Wait()
+}
+
+// deployK8sPolicyToFw actually deploys the provided kubernetes policy to the provided fw manager.
+func (manager *NetworkPolicyManager) deployK8sPolicyToFw(policy *networking_v1.NetworkPolicy, fw pcn_firewall.PcnFirewall) {
+	//	Get the spec, with the ingress & egress rules
+	spec := policy.Spec
+	ingress, egress, policyType := manager.defaultPolicyParser.ParsePolicyTypes(&spec)
+
+	var parsed pcn_types.ParsedRules
+	fwActions := []pcn_types.FirewallAction{}
+
+	var podsWaitGroup sync.WaitGroup
+	podsWaitGroup.Add(1)
+
+	//	Get the rules
+	go func() {
+		defer podsWaitGroup.Done()
+		parsed = manager.defaultPolicyParser.ParseRules(ingress, egress, policy.Namespace)
+	}()
+
+	podsWaitGroup.Wait()
+
+	//	Firewall is transparent: we need to reverse the directions
+	opposedPolicyType := policyType
+	if opposedPolicyType != "*" {
+		if policyType == "ingress" {
+			opposedPolicyType = "egress"
+		} else {
+			opposedPolicyType = "ingress"
+		}
+	}
+
+	//	Actually enforce the policy
+	fw.EnforcePolicy(policy.Name, opposedPolicyType, policy.CreationTimestamp, parsed.Ingress, parsed.Egress)
 }
 
 // implode creates a key in the format of namespace_name|key1=value1;key2=value2;.
@@ -153,11 +244,29 @@ func (manager *NetworkPolicyManager) checkNewPod(pod *core_v1.Pod) {
 		return justCreated, fw
 	}
 
-	shouldInit, _ := linkPod()
+	shouldInit, fw := linkPod()
 	if !shouldInit {
 		//	Firewall is already inited. You can stop here.
 		return
 	}
+
+	//	Commenting this because it's highly improbable of race conditions here: we just created a new firewall and no one is going to
+	//	destroy it this moment. The only thing that might happen is if someone deletes a policy while we are deploying it, but should be rare.
+	//	I might be overthinking here... so, for now, we disable this.
+	/*manager.lock.Lock()
+	defer manager.lock.Unlock()*/
+
+	//-------------------------------------
+	//	Must this pod enforce any policy?
+	//-------------------------------------
+	k8sPolicies, _ := manager.dnpc.GetPolicies(pcn_types.ObjectQuery{By: "name", Name: "*"}, pod.Namespace)
+	for _, kp := range k8sPolicies {
+		if manager.defaultPolicyParser.DoesPolicyAffectPod(&kp, pod) {
+			manager.deployK8sPolicyToFw(&kp, fw)
+		}
+	}
+
+	// Do the same for polycube policies
 }
 
 // getOrCreateFirewallManager gets a local firewall manager for this pod or creates one if not there.
