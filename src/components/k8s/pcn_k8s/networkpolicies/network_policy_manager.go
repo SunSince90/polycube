@@ -78,6 +78,7 @@ func StartNetworkPolicyManager(basePath string, dnpc *pcn_controllers.DefaultNet
 
 	//podController.Subscribe(pcn_types.New, manager.checkNewPod)
 	podController.Subscribe(pcn_types.Update, pcn_types.ObjectQuery{Node: nodeName}, pcn_types.ObjectQuery{}, pcn_types.PodRunning, manager.checkNewPod)
+	podController.Subscribe(pcn_types.Delete, pcn_types.ObjectQuery{Node: nodeName}, pcn_types.ObjectQuery{}, pcn_types.PodAnyPhase, manager.manageDeletedPod)
 
 	return &manager
 }
@@ -187,4 +188,36 @@ func (manager *NetworkPolicyManager) getOrCreateFirewallManager(pod *core_v1.Pod
 		return fw, true
 	}
 	return fw, false
+}
+
+// manageDeletedPod makes sure that the appropriate firewall manager will destroy this pod's firewall
+func (manager *NetworkPolicyManager) manageDeletedPod(pod *core_v1.Pod) {
+	l := log.NewEntry(manager.log)
+	l.WithFields(log.Fields{"by": PM, "method": "manageDeletedPod(" + pod.Name + ")"})
+
+	if pod.Namespace == "kube-system" {
+		l.Infoln("Pod", pod.Name, "belongs to the kube-system namespace: no point in checking its firewall manager. Will stop here.")
+		return
+	}
+
+	fwKey := manager.implode(pod.Labels, pod.Namespace)
+	defer delete(manager.linkedPods, pod.UID)
+
+	manager.lock.Lock()
+	defer manager.lock.Unlock()
+
+	//	First get the firewall
+	fw, exists := manager.localFirewalls[fwKey]
+	if !exists {
+		//	The firewall manager for this pod does not exist. Then who managed it until now? This is a very improbable case.
+		l.Warningln("Could not find a firewall manager for dying pod", pod.UID, "!")
+		return
+	}
+
+	wasLinked, _ := fw.Unlink(pod, pcn_firewall.DestroyFirewall)
+	if !wasLinked {
+		//	This pod wasn't even linked to the firewall!
+		l.Warningln("Dying pod", pod.UID, "was not linked to its firewall manager", fwKey)
+		return
+	}
 }
