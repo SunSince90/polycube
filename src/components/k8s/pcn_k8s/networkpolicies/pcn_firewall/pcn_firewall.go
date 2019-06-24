@@ -393,6 +393,35 @@ func (d *FirewallManager) removePolicyPriority(policyName string) {
 	d.priorities = temp                        // 3)
 }
 
+// calculateInsertionIDs gets the first useful rules IDs for insertion, based on the policy's priority
+func (d *FirewallManager) calculateInsertionIDs(policyName string) (int32, int32) {
+	iStartFrom := 0
+	eStartFrom := 0
+
+	/* Example: we want to insert 2 rules for policy my-policy, this is the current list of priorities:
+	0) my-other-policy (it has 2 rules)
+	2) my-policy (it has 1 rule)
+	3) yet-another-policy (it has 2 rules)
+
+	On each iteration we count the number of rules for that policy, and we stop when the policy is the one we need.
+	First iteration: 2 rules -> 0 + 2 = start from id 2 -> the policy is not the one we need -> go on.
+	Second iteration: 1 rule -> 2 + 1 = start from id 3 -> the policy is ok > stop.
+	We're going to insert from id 3.
+	*/
+
+	for _, currentPolicy := range d.priorities {
+		// jump the rules
+		iStartFrom += len(d.ingressRules[currentPolicy.policyName])
+		eStartFrom += len(d.egressRules[currentPolicy.policyName])
+
+		if currentPolicy.policyName == policyName {
+			break
+		}
+	}
+
+	return int32(iStartFrom), int32(eStartFrom)
+}
+
 // updateCounts updates the internal counts of policies types enforced, making sure default actions are respected.
 // This is just a convenient method used to keep core methods (EnforcePolicy and CeasePolicy) as clean and readable as possible.
 // When possible, this function is used in place of increaseCount or decreaseCount, as it is preferrable to do it like this.
@@ -742,6 +771,132 @@ func (d *FirewallManager) reactToPod(event pcn_types.EventType, pod *core_v1.Pod
 	l.WithFields(log.Fields{"by": "FirewallManager-" + d.name, "method": "reactToPod(" + string(event) + ", " + pod.Status.PodIP + ", " + actionKey + "...)"})
 
 	l.Infoln("Reacting...")
+
+	//-------------------------------------
+	//	Update
+	//-------------------------------------
+
+	update := func(ip string) {
+
+		//	Basic checks
+		actions, exist := d.policyActions[actionKey]
+		if !exist {
+			l.Warningln("Could not find any actions with this key")
+			return
+		}
+		if len(actions.actions) < 1 {
+			l.Warningln("There are no actions to be taken!")
+			return
+		}
+
+		//	NOTE: read the note on checkedPods.
+		ingress := []k8sfirewall.ChainRule{}
+		egress := []k8sfirewall.ChainRule{}
+
+		//	Build rules according to the policy's priority
+		for policy, rules := range actions.actions {
+			// first calculate the priority
+			iStartFrom, eStartFrom := d.calculateInsertionIDs(policy)
+
+			//	Then format the rules
+			ingressRules, egressRules := d.storeRules(policy, ip, rules.Ingress, rules.Egress)
+			ingress = append(ingress, ingressRules...)
+			egress = append(egress, egressRules...)
+
+			//	Now inject the rules in all firewalls linked.
+			//	This usually is a matter of 1-2 rules, so no need to do this in a separate goroutine.
+			for _, f := range d.linkedPods {
+				name := "fw-" + f
+				d.injecter(name, ingress, egress, nil, iStartFrom, eStartFrom)
+			}
+		}
+	}
+
+	//-------------------------------------
+	//	Delete
+	//-------------------------------------
+
+	delete := func(ip string) {
+		var waiter sync.WaitGroup
+		waiter.Add(2)
+
+		//	--- Ingress
+		go func() {
+			defer waiter.Done()
+
+			//	For each policy, go get all the rules in which this ip was present.
+			rulesToDelete := []k8sfirewall.ChainRule{}
+			rulesToKeep := []k8sfirewall.ChainRule{}
+			for policy, rules := range d.ingressRules {
+				for _, rule := range rules {
+					//if rule.Src == ip {
+					if rule.Dst == ip {
+						rulesToDelete = append(rulesToDelete, rule)
+					} else {
+						rulesToKeep = append(rulesToKeep, rule)
+					}
+				}
+
+				d.ingressRules[policy] = rulesToKeep
+			}
+
+			if len(rulesToDelete) < 1 {
+				return
+			}
+
+			//	Delete the rules on each linked pod
+			for _, fwIP := range d.linkedPods {
+				name := "fw-" + fwIP
+				d.deleteRules(name, "ingress", rulesToDelete)
+				d.applyRules(name, "ingress")
+			}
+		}()
+
+		//	--- Egress
+		go func() {
+			defer waiter.Done()
+			rulesToDelete := []k8sfirewall.ChainRule{}
+			rulesToKeep := []k8sfirewall.ChainRule{}
+			for policy, rules := range d.egressRules {
+				for _, rule := range rules {
+					log.Printf("###need to delete %s in egress, len policy %s %d", ip, policy, len(rules))
+					log.Printf("###checking in egress %s against this rule %s", ip, rule.Src)
+					//if rule.Dst == ip {
+					if rule.Src == ip {
+						rulesToDelete = append(rulesToDelete, rule)
+					} else {
+						rulesToKeep = append(rulesToKeep, rule)
+					}
+				}
+
+				d.egressRules[policy] = rulesToKeep
+			}
+
+			if len(rulesToDelete) < 1 {
+				log.Debugln("###No rules to delete in egress")
+				return
+			}
+
+			for _, fwIP := range d.linkedPods {
+				name := "fw-" + fwIP
+				d.deleteRules(name, "egress", rulesToDelete)
+				d.applyRules(name, "egress")
+			}
+		}()
+
+		waiter.Wait()
+	}
+
+	//-------------------------------------
+	//	Main entrypoint: what to do?
+	//-------------------------------------
+
+	switch event {
+	case pcn_types.Update:
+		update(pod.Status.PodIP)
+	case pcn_types.Delete:
+		delete(pod.Status.PodIP)
+	}
 }
 
 // deleteAllPolicyRules deletes all rules mentioned in a policy
