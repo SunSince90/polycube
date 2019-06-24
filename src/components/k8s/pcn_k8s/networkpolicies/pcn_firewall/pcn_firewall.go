@@ -770,6 +770,9 @@ func (d *FirewallManager) reactToPod(event pcn_types.EventType, pod *core_v1.Pod
 	l := log.NewEntry(d.log)
 	l.WithFields(log.Fields{"by": "FirewallManager-" + d.name, "method": "reactToPod(" + string(event) + ", " + pod.Status.PodIP + ", " + actionKey + "...)"})
 
+	d.lock.Lock()
+	defer d.lock.Unlock()
+
 	l.Infoln("Reacting...")
 
 	//-------------------------------------

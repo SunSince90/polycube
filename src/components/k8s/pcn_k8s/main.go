@@ -32,6 +32,7 @@ import (
 	//	TODO-ON-MERGE: change the path here to polycube-network
 	//"github.com/SunSince90/polycube/src/components/k8s/pcn_k8s/controllers"
 	pcn_controllers "github.com/SunSince90/polycube/src/components/k8s/pcn_k8s/controllers"
+	networkpolicies "github.com/SunSince90/polycube/src/components/k8s/pcn_k8s/networkpolicies"
 
 	//"github.com/polycube-network/polycube/src/components/k8s/pcn_k8s/controllers"
 	//"github.com/polycube-network/polycube/src/components/k8s/pcn_k8s/networkpolicies"
@@ -85,6 +86,8 @@ var (
 	podController pcn_controllers.PodController
 	nsController  pcn_controllers.NamespaceController
 	//	--- /Controllers
+
+	networkPolicyManager networkpolicies.PcnNetworkPolicyManager
 
 	stop bool
 )
@@ -269,6 +272,9 @@ func main() {
 
 	//	Start the pod controller
 	go podController.Run()
+
+	//	Start the policy manager
+	networkPolicyManager = networkpolicies.StartNetworkPolicyManager(basePath, defaultnpc, podController, node)
 
 	// read and process all notifications for both, pods and enpoints
 	// Notice that a notification is processed at the time, so
