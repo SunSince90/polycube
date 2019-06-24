@@ -239,12 +239,18 @@ func (manager *NetworkPolicyManager) deployK8sPolicyToFw(policy *networking_v1.N
 	fwActions := []pcn_types.FirewallAction{}
 
 	var podsWaitGroup sync.WaitGroup
-	podsWaitGroup.Add(1)
+	podsWaitGroup.Add(2)
 
 	//	Get the rules
 	go func() {
 		defer podsWaitGroup.Done()
 		parsed = manager.defaultPolicyParser.ParseRules(ingress, egress, policy.Namespace)
+	}()
+
+	//	Get the actions/templates
+	go func() {
+		defer podsWaitGroup.Done()
+		fwActions = manager.defaultPolicyParser.BuildActions(ingress, egress, policy.Namespace)
 	}()
 
 	podsWaitGroup.Wait()
@@ -261,6 +267,7 @@ func (manager *NetworkPolicyManager) deployK8sPolicyToFw(policy *networking_v1.N
 
 	//	Actually enforce the policy
 	fw.EnforcePolicy(policy.Name, opposedPolicyType, policy.CreationTimestamp, parsed.Ingress, parsed.Egress, fwActions)
+
 }
 
 // implode creates a key in the format of namespace_name|key1=value1;key2=value2;.
