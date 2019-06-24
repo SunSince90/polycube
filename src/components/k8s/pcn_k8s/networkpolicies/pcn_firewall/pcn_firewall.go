@@ -25,7 +25,7 @@ type PcnFirewall interface {
 	IsPolicyEnforced(string) bool
 	Selector() (map[string]string, string)
 	Name() string
-	EnforcePolicy(string, string, meta_v1.Time, []k8sfirewall.ChainRule, []k8sfirewall.ChainRule)
+	EnforcePolicy(string, string, meta_v1.Time, []k8sfirewall.ChainRule, []k8sfirewall.ChainRule, []pcn_types.FirewallAction)
 	CeasePolicy(string)
 	Destroy()
 }
@@ -58,6 +58,8 @@ type FirewallManager struct {
 	egressPoliciesCount int
 	// policyTypes is a map of policies types enforced. Used to know how the default action should be handled.
 	policyTypes map[string]string
+	// policyActions contains a map of actions to be taken when a pod event occurs
+	policyActions map[string]*subscriptions
 	// selector defines what kind of pods this firewall is monitoring
 	selector selector
 	// node is the node in which we are currently running
@@ -76,6 +78,13 @@ type policyPriority struct {
 type selector struct {
 	namespace string
 	labels    map[string]string
+}
+
+// subscriptions contains the templates (here called actions) that should be used when a pod event occurs,
+// and the functions to be called when we need to unsubscribe.
+type subscriptions struct {
+	actions        map[string]*pcn_types.ParsedRules
+	unsubscriptors []func()
 }
 
 // StartFirewall will start a new firewall manager
@@ -105,6 +114,8 @@ func StartFirewall(API *k8sfirewall.FirewallApiService, podController pcn_contro
 		egressPoliciesCount:  0,
 		//	Policy types
 		policyTypes: map[string]string{},
+		//	Actions
+		policyActions: map[string]*subscriptions{},
 		//	Linked pods
 		linkedPods: map[k8s_types.UID]string{},
 		//	The default actions
@@ -270,7 +281,7 @@ func (d *FirewallManager) Name() string {
 }
 
 // EnforcePolicy enforces a new policy (e.g.: injects rules in all linked firewalls)
-func (d *FirewallManager) EnforcePolicy(policyName, policyType string, policyTime meta_v1.Time, ingress, egress []k8sfirewall.ChainRule) {
+func (d *FirewallManager) EnforcePolicy(policyName, policyType string, policyTime meta_v1.Time, ingress, egress []k8sfirewall.ChainRule, actions []pcn_types.FirewallAction) {
 	l := log.NewEntry(d.log)
 	l.WithFields(log.Fields{"by": "FirewallManager-" + d.name, "method": "EnforcePolicy"})
 	l.Infof("firewall %s is going to enforce policy %s", d.name, policyName)
@@ -278,6 +289,12 @@ func (d *FirewallManager) EnforcePolicy(policyName, policyType string, policyTim
 	//	Only one policy at a time, please
 	d.lock.Lock()
 	defer d.lock.Unlock()
+
+	//-------------------------------------
+	//	Define the actions
+	//-------------------------------------
+
+	d.definePolicyActions(policyName, actions)
 
 	//-------------------------------------
 	//	Store the rules
@@ -657,6 +674,76 @@ func (d *FirewallManager) injectRules(firewall, direction string, rules []k8sfir
 	return nil
 }
 
+// definePolicyActions subscribes to the appropriate events and defines the actions to be taken when that event happens.
+func (d *FirewallManager) definePolicyActions(policyName string, actions []pcn_types.FirewallAction) {
+	for _, action := range actions {
+		shouldSubscribe := false
+
+		//	Create the action if does not exist
+		if _, exists := d.policyActions[action.Key]; !exists {
+			d.policyActions[action.Key] = &subscriptions{
+				actions: map[string]*pcn_types.ParsedRules{},
+			}
+			shouldSubscribe = true
+		}
+
+		d.log.Infof("actions: %+v\n", action)
+
+		//	Define the action...
+		if _, exists := d.policyActions[action.Key].actions[policyName]; !exists {
+			d.policyActions[action.Key].actions[policyName] = &pcn_types.ParsedRules{}
+		}
+		d.policyActions[action.Key].actions[policyName].Ingress = append(d.policyActions[action.Key].actions[policyName].Ingress, action.Templates.Ingress...)
+		d.policyActions[action.Key].actions[policyName].Egress = append(d.policyActions[action.Key].actions[policyName].Egress, action.Templates.Egress...)
+
+		//	... And subscribe to events
+		if shouldSubscribe {
+			//	Prepare the subscription query
+			podQuery := pcn_types.ObjectQuery{}
+			if len(action.PodLabels) > 0 {
+				podQuery.Labels = action.PodLabels
+			}
+			nsQuery := pcn_types.ObjectQuery{}
+			if len(action.NamespaceName) > 0 {
+				nsQuery.Name = action.NamespaceName
+			} else {
+				nsQuery.Labels = action.NamespaceLabels
+			}
+
+			//	Finally, susbcribe...
+			//	-- To update events
+			updateUnsub, err := d.podController.Subscribe(pcn_types.Update, podQuery, nsQuery, pcn_types.PodRunning, func(pod *core_v1.Pod) {
+				d.reactToPod(pcn_types.Update, pod, action.Key)
+			})
+			//	-- To delete events
+			// 	UPDATE: on the latest version of the controllers, I use the tombstone to get dead resources, but the tombstone
+			//	obviously doesn't get any info about the IP the pod used to have: this subscribtion does not work anymore.
+			//	I know need to subscribe to *terminating* pods, they still have this info.
+			//	The issue is that terminating pod are considered as running pod, so they may still trigger some other update events.
+			/*deleteUnsub, err := d.podController.Subscribe(pcn_types.Delete, podQuery, nsQuery, pcn_types.PodAnyPhase, func(pod *core_v1.Pod) {
+				d.reactToPod(pcn_types.Delete, pod, "")
+			})*/
+			deleteUnsub, err := d.podController.Subscribe(pcn_types.Update, podQuery, nsQuery, pcn_types.PodTerminating, func(pod *core_v1.Pod) {
+				d.reactToPod(pcn_types.Delete, pod, action.Key)
+			})
+
+			if err == nil {
+				d.policyActions[action.Key].unsubscriptors = append(d.policyActions[action.Key].unsubscriptors, updateUnsub)
+				d.policyActions[action.Key].unsubscriptors = append(d.policyActions[action.Key].unsubscriptors, deleteUnsub)
+			}
+		}
+	}
+}
+
+// reactToPod is called whenever a monitored pod event occurs. E.g.: I should accept connections from Pod A, and a new Pod A is born.
+// This function knows what to do when that event happens.
+func (d *FirewallManager) reactToPod(event pcn_types.EventType, pod *core_v1.Pod, actionKey string) {
+	l := log.NewEntry(d.log)
+	l.WithFields(log.Fields{"by": "FirewallManager-" + d.name, "method": "reactToPod(" + string(event) + ", " + pod.Status.PodIP + ", " + actionKey + "...)"})
+
+	l.Infoln("Reacting...")
+}
+
 // deleteAllPolicyRules deletes all rules mentioned in a policy
 func (d *FirewallManager) deleteAllPolicyRules(policy string) {
 	l := log.NewEntry(d.log)
@@ -707,6 +794,39 @@ func (d *FirewallManager) deleteAllPolicyRules(policy string) {
 	waiter.Wait()
 }
 
+// deletePolicyActions delete all templates generated by a specific policy.
+// So that the firewall manager will not generate those rules anymore when it will react to a certain pod.
+func (d *FirewallManager) deletePolicyActions(policy string) {
+	l := log.NewEntry(d.log)
+	l.WithFields(log.Fields{"by": "FirewallManager-" + d.name, "method": "deleteAllPolicyActions(" + policy + ")"})
+
+	flaggedForDeletion := []string{}
+
+	//-------------------------------------
+	//	Delete this policy from the actions
+	//-------------------------------------
+	for key, action := range d.policyActions {
+		delete(action.actions, policy)
+
+		//	This action belongs to no policies anymore?
+		if len(action.actions) < 1 {
+			flaggedForDeletion = append(flaggedForDeletion, key)
+		}
+	}
+
+	//-------------------------------------
+	//	Delete actions with no policies
+	//-------------------------------------
+	//	If, after deleting the policy from the actions, the action has no policy anymore then we need to stop monitoring that pod!
+	for _, flaggedKey := range flaggedForDeletion {
+		for _, unsubscribe := range d.policyActions[flaggedKey].unsubscriptors {
+			unsubscribe()
+		}
+
+		delete(d.policyActions, flaggedKey)
+	}
+}
+
 // CeasePolicy will cease a policy, removing all rules generated by it and won't react to pod events included by it anymore.
 func (d *FirewallManager) CeasePolicy(policyName string) {
 	l := log.NewEntry(d.log)
@@ -720,6 +840,12 @@ func (d *FirewallManager) CeasePolicy(policyName string) {
 	//-------------------------------------
 
 	d.deleteAllPolicyRules(policyName)
+
+	//-------------------------------------
+	//	Remove this policy's templates from the actions
+	//-------------------------------------
+
+	d.deletePolicyActions(policyName)
 
 	//-------------------------------------
 	//	Remove this policy's priority

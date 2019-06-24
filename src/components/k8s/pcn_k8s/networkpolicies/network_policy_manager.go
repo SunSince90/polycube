@@ -260,7 +260,7 @@ func (manager *NetworkPolicyManager) deployK8sPolicyToFw(policy *networking_v1.N
 	}
 
 	//	Actually enforce the policy
-	fw.EnforcePolicy(policy.Name, opposedPolicyType, policy.CreationTimestamp, parsed.Ingress, parsed.Egress)
+	fw.EnforcePolicy(policy.Name, opposedPolicyType, policy.CreationTimestamp, parsed.Ingress, parsed.Egress, fwActions)
 }
 
 // implode creates a key in the format of namespace_name|key1=value1;key2=value2;.
