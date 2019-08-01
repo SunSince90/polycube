@@ -3,7 +3,6 @@ package networkpolicies
 import (
 	"errors"
 	"fmt"
-	"net"
 	"sync"
 
 	"github.com/polycube-network/polycube/src/components/k8s/utils"
@@ -11,7 +10,6 @@ import (
 	pcn_controllers "github.com/polycube-network/polycube/src/components/k8s/pcn_k8s/controllers"
 	pcn_types "github.com/polycube-network/polycube/src/components/k8s/pcn_k8s/types"
 	k8sfirewall "github.com/polycube-network/polycube/src/components/k8s/utils/k8sfirewall"
-	log "github.com/sirupsen/logrus"
 	core_v1 "k8s.io/api/core/v1"
 	networking_v1 "k8s.io/api/networking/v1"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -38,16 +36,11 @@ type PcnK8sPolicyParser interface {
 
 // K8sPolicyParser is the implementation of the default parser
 type K8sPolicyParser struct {
-	podController pcn_controllers.PodController
-	vPodsRange    *net.IPNet
 }
 
 // newK8sPolicyParser starts a new k8s policy parser
-func newK8sPolicyParser(podController pcn_controllers.PodController, vPodsRange *net.IPNet) *K8sPolicyParser {
-	return &K8sPolicyParser{
-		podController: podController,
-		vPodsRange:    vPodsRange,
-	}
+func newK8sPolicyParser() *K8sPolicyParser {
+	return &K8sPolicyParser{}
 }
 
 // ParseRules is a convenient method for parsing Ingress and Egress concurrently
@@ -98,11 +91,10 @@ func (d *K8sPolicyParser) ParseRules(ingress []networking_v1.NetworkPolicyIngres
 
 // ParseIngress parses the Ingress section of a policy
 func (d *K8sPolicyParser) ParseIngress(rules []networking_v1.NetworkPolicyIngressRule, namespace string) pcn_types.ParsedRules {
-
 	//-------------------------------------
 	// Init
 	//-------------------------------------
-	l := log.New().WithFields(log.Fields{"by": KPP, "method": "ParseIngress"})
+
 	parsed := pcn_types.ParsedRules{
 		Ingress: []k8sfirewall.ChainRule{},
 		Egress:  []k8sfirewall.ChainRule{},
@@ -186,7 +178,7 @@ func (d *K8sPolicyParser) ParseIngress(rules []networking_v1.NetworkPolicyIngres
 						generatedEgressRules = append(generatedEgressRules, rulesGot.Egress...)
 					}
 				} else {
-					l.Errorf("Error while parsing selectors: %s", err)
+					logger.Errorf("Error while parsing selectors: %s", err)
 				}
 			}
 		}
@@ -207,7 +199,7 @@ func (d *K8sPolicyParser) ParseEgress(rules []networking_v1.NetworkPolicyEgressR
 	//-------------------------------------
 	// Init
 	//-------------------------------------
-	l := log.New().WithFields(log.Fields{"by": KPP, "method": "ParseEgress"})
+
 	parsed := pcn_types.ParsedRules{
 		Ingress: []k8sfirewall.ChainRule{},
 		Egress:  []k8sfirewall.ChainRule{},
@@ -281,7 +273,7 @@ func (d *K8sPolicyParser) ParseEgress(rules []networking_v1.NetworkPolicyEgressR
 						generatedEgressRules = append(generatedEgressRules, rulesGot.Egress...)
 					}
 				} else {
-					l.Errorf("Error while parsing selectors: %s", err)
+					logger.Errorf("Error while parsing selectors: %s", err)
 				}
 			}
 		}
@@ -512,21 +504,20 @@ func (d *K8sPolicyParser) parseSelectors(podSelector, namespaceSelector *meta_v1
 	}
 
 	// Now get the pods
-	podsFound, err := d.podController.GetPods(podQuery, nsQuery, nil)
+	podsFound, err := pcn_controllers.Pods().List(podQuery, nsQuery, nil)
 	if err != nil {
 		return rules, fmt.Errorf("Error while trying to get pods %s", err.Error())
 	}
 
 	// Now build the pods
 	for _, pod := range podsFound {
+		if len(pod.Status.PodIP) == 0 {
+			continue
+		}
 		parsed := pcn_types.ParsedRules{}
-		podIPs := []string{pod.Status.PodIP, utils.GetPodVirtualIP(d.vPodsRange, pod.Status.PodIP)}
+		podIPs := []string{pod.Status.PodIP, utils.GetPodVirtualIP(pod.Status.PodIP)}
 
 		for _, podIP := range podIPs {
-			if len(podIP) == 0 {
-				continue
-			}
-
 			// Prepare the ips (these are defaults)
 			src := ""
 			dst := ""
