@@ -31,7 +31,7 @@ type PcnNetworkPolicyManager interface {
 // NetworkPolicyManager is the implementation of the policy manager
 type NetworkPolicyManager struct {
 	// knpc is the kubernetes policy controller
-	knpc *pcn_controllers.K8sNetworkPolicyController
+	knpc pcn_controllers.K8sNetworkPolicyController
 	// podController is the pod controller
 	podController pcn_controllers.PodController
 	// nsController is the namespace controller
@@ -77,7 +77,7 @@ type nsUnsubscriptor struct {
 var startFirewall = pcn_firewall.StartFirewall
 
 // StartNetworkPolicyManager will start a new network policy manager.
-func StartNetworkPolicyManager(vPodsRange *net.IPNet, basePath, nodeName string, knpc *pcn_controllers.K8sNetworkPolicyController, podController pcn_controllers.PodController, nsController pcn_controllers.NamespaceController) PcnNetworkPolicyManager {
+func StartNetworkPolicyManager(vPodsRange *net.IPNet, basePath, nodeName string, knpc pcn_controllers.K8sNetworkPolicyController, podController pcn_controllers.PodController, nsController pcn_controllers.NamespaceController) PcnNetworkPolicyManager {
 	l := log.New().WithFields(log.Fields{"by": PM, "method": "StartNetworkPolicyManager()"})
 	l.Infoln("Starting Network Policy Manager")
 

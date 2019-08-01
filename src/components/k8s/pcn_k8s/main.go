@@ -230,6 +230,9 @@ func main() {
 		panic(err0.Error())
 	}
 
+	// kv handler
+	go kvM.Loop()
+
 	// Start the controllers
 	pcn_controllers.Start(clientset)
 
@@ -242,9 +245,6 @@ func main() {
 	// Get the pod controller
 	podController := pcn_controllers.Pods()
 	// -- /Temporary
-
-	// kv handler
-	go kvM.Loop()
 
 	vPodsCIDR := k8sNode.VPodCIDR
 
