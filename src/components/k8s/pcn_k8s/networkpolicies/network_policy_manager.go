@@ -96,6 +96,19 @@ func StartNetworkPolicyManager(nodeName string) PcnNetworkPolicyManager {
 	pcn_controllers.PcnPolicies().Subscribe(pcn_types.Update, manager.UpdatePcnPolicy)
 
 	//-------------------------------------
+	// Subscribe to services events
+	//-------------------------------------
+
+	// check new service
+	pcn_controllers.Services().Subscribe(pcn_types.New, manager.CheckNewService)
+
+	// check removed
+	pcn_controllers.Services().Subscribe(pcn_types.Delete, manager.CheckRemovedService)
+
+	// checkUpdate
+	pcn_controllers.Services().Subscribe(pcn_types.Update, manager.CheckUpdatedService)
+
+	//-------------------------------------
 	// Subscribe to pod events
 	//-------------------------------------
 
@@ -339,16 +352,16 @@ func (manager *NetworkPolicyManager) UpdateK8sPolicy(policy, _ *networking_v1.Ne
 		for _, in := range ingressPolicies {
 			if fwManager.IsPolicyEnforced(in.Name) {
 				fwManager.CeasePolicy(in.Name)
-				manager.deployPolicyToFw(&in, fwManager.Name())
 			}
+			manager.deployPolicyToFw(&in, fwManager.Name())
 		}
 
 		// -- Egress
 		for _, eg := range egressPolicies {
 			if fwManager.IsPolicyEnforced(eg.Name) {
 				fwManager.CeasePolicy(eg.Name)
-				manager.deployPolicyToFw(&eg, fwManager.Name())
 			}
+			manager.deployPolicyToFw(&eg, fwManager.Name())
 		}
 	}
 }
@@ -417,16 +430,104 @@ func (manager *NetworkPolicyManager) UpdatePcnPolicy(policy, _ *v1beta.PolycubeN
 		for _, in := range ingressPolicies {
 			if fwManager.IsPolicyEnforced(in.Name) {
 				fwManager.CeasePolicy(in.Name)
-				manager.deployPolicyToFw(&in, fwManager.Name())
 			}
+			manager.deployPolicyToFw(&in, fwManager.Name())
 		}
 
 		// -- Egress
 		for _, eg := range egressPolicies {
 			if fwManager.IsPolicyEnforced(eg.Name) {
 				fwManager.CeasePolicy(eg.Name)
-				manager.deployPolicyToFw(&eg, fwManager.Name())
 			}
+			manager.deployPolicyToFw(&eg, fwManager.Name())
+		}
+	}
+}
+
+// CheckNewService checks if this service needs to be protected
+func (manager *NetworkPolicyManager) checkServiceNewOrRemoved(serv *core_v1.Service, eventType string) {
+	manager.lock.Lock()
+	defer manager.lock.Unlock()
+
+	if serv.Namespace == "kube-system" {
+		logger.Infof("Service %s belongs to kube-system, so it is going to be skipped. Stopping here.", serv.Name)
+		return
+	}
+
+	logger.Infof("Service %s has been deployed", serv.Name)
+
+	if len(serv.Spec.Selector) == 0 {
+		logger.Infof("Service %s has no selectors. No point in checking for policies. Stopping here.", serv.Name)
+		return
+	}
+
+	// Get policies
+	nsQuery := utils.BuildQuery(serv.Namespace, nil)
+	policies, err := pcn_controllers.PcnPolicies().List(nil, nsQuery)
+	if err != nil {
+		logger.Errorf("Could not get policies on namespace %s.", serv.Namespace)
+		return
+	}
+	if len(policies) == 0 {
+		logger.Infof("No policies found for namespaces %s. Stopping here.", serv.Namespace)
+		return
+	}
+
+	for _, pol := range policies {
+		if pol.ApplyTo.Target == v1beta.ServiceTarget && pol.ApplyTo.WithName == serv.Name {
+			if eventType == "new" {
+				manager.DeployPcnPolicy(&pol, nil)
+			} else {
+				manager.RemovePcnPolicy(&pol, nil)
+			}
+
+		}
+	}
+}
+
+// CheckNewService checks if this service needs to be protected
+func (manager *NetworkPolicyManager) CheckNewService(serv, _ *core_v1.Service) {
+	manager.checkServiceNewOrRemoved(serv, "new")
+}
+
+// CheckRemovedService checks if this service needs to be protected
+func (manager *NetworkPolicyManager) CheckRemovedService(_, serv *core_v1.Service) {
+	manager.checkServiceNewOrRemoved(serv, "delete")
+}
+
+// CheckUpdatedService checks if this service needs to be protected
+func (manager *NetworkPolicyManager) CheckUpdatedService(serv, prev *core_v1.Service) {
+	manager.lock.Lock()
+	defer manager.lock.Unlock()
+
+	if serv.Namespace == "kube-system" {
+		logger.Infof("Service %s belongs to kube-system, so it is going to be skipped. Stopping here.", serv.Name)
+		return
+	}
+
+	logger.Infof("Service %s has been updated", serv.Name)
+
+	if len(serv.Spec.Selector) == 0 && len(prev.Spec.Selector) == 0 {
+		logger.Infof("Service %s has no selectors. No point in checking for policies. Stopping here.", serv.Name)
+		return
+	}
+
+	// Get policies
+	nsQuery := utils.BuildQuery(serv.Namespace, nil)
+	policies, err := pcn_controllers.PcnPolicies().List(nil, nsQuery)
+	if err != nil {
+		logger.Errorf("Could not get policies on namespace %s.", serv.Namespace)
+		return
+	}
+	if len(policies) == 0 {
+		logger.Infof("No policies found for namespaces %s. Stopping here.", serv.Namespace)
+		return
+	}
+
+	for _, pol := range policies {
+		if pol.ApplyTo.Target == v1beta.ServiceTarget && pol.ApplyTo.WithName == serv.Name {
+			manager.RemovePcnPolicy(&pol, nil)
+			manager.DeployPcnPolicy(&pol, nil)
 		}
 	}
 }
