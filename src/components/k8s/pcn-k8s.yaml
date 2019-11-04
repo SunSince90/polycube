@@ -31,6 +31,14 @@ data:
   # non conflicting /16 range.
   # This is a temporary workaroud and should be fixed in the near future.
   vtepsRange: "10.18.0.0/16"
+
+  # Sidecar injector
+  # If set to true, all pods with label polycube.network/inject-sidecar=true
+  # will be injected with polycubed. Setting this to true will make polycube
+  # work in unmanaged security mode, i.e. policies will be ignored and the
+  # end user will be in charge of securing pods. Polycubed inside each pods
+  # must be used to create firewalls in this case.
+  sidecarInjector: false
 ---
 apiVersion: apps/v1
 kind: DaemonSet
